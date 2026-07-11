@@ -1,0 +1,27 @@
+{
+  "name": "kaiyuncode-tools",
+  "version": "0.1.0",
+  "description": "Configure agent clients and run KaiyunCode image and video workflows.",
+  "author": {
+    "name": "KaiyunCode"
+  },
+  "homepage": "https://kaiyuncode.com/docs",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "KaiyunCode Tools",
+    "shortDescription": "Configure agents and create media with KaiyunCode.",
+    "longDescription": "Configure Codex and Claude Code for KaiyunCode, then run production-documented asynchronous image and video workflows.",
+    "developerName": "KaiyunCode",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "配置我的 Codex 和 Claude Code 使用 KaiyunCode",
+      "使用 KaiyunCode 生成或编辑图片",
+      "使用 KaiyunCode 生成或编辑视频"
+    ]
+  }
+}

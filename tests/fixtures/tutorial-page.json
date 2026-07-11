@@ -1,0 +1,105 @@
+{
+  "updatedAt": 1783744853385,
+  "config": {
+    "version": 1,
+    "items": [
+      {
+        "key": "image_text_generation",
+        "category": "image",
+        "mode": "api",
+        "name": "文生图",
+        "endpointPath": "/v1/images/async/generations",
+        "steps": [
+          {
+            "title": "GPT Image 2",
+            "parameters": [
+              { "name": "model", "location": "body", "type": "string", "required": true, "defaultValue": "gpt-image-2", "range": "gpt-image-2", "description": "模型 ID" },
+              { "name": "prompt", "location": "body", "type": "string", "required": true, "defaultValue": "-", "range": "非空文本", "description": "提示词" },
+              { "name": "n", "location": "body", "type": "number", "required": false, "defaultValue": "1", "range": "通常保持 1", "description": "生成数量" }
+            ],
+            "codeBlocks": [
+              { "label": "cURL", "code": "curl {{baseUrl}}/v1/images/async/generations \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"model\": \"gpt-image-2\",\n    \"prompt\": \"A product photo\",\n    \"n\": 1\n  }'" }
+            ]
+          },
+          {
+            "title": "GPT Image 2 Max",
+            "parameters": [
+              { "name": "model", "location": "body", "type": "string", "required": true, "defaultValue": "gpt-image-2-max", "range": "gpt-image-2-max", "description": "模型 ID" }
+            ],
+            "codeBlocks": [
+              { "label": "cURL", "code": "curl {{baseUrl}}/v1/images/async/generations -d '{\"model\":\"gpt-image-2-max\"}'" }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "image_edit",
+        "category": "image",
+        "mode": "api",
+        "name": "图片编辑",
+        "endpointPath": "/v1/images/async/edits",
+        "steps": [
+          {
+            "title": "GPT Image 2",
+            "parameters": [
+              { "name": "model", "location": "body", "type": "string", "required": true, "defaultValue": "gpt-image-2", "range": "gpt-image-2", "description": "模型 ID" },
+              { "name": "prompt", "location": "body", "type": "string", "required": true, "defaultValue": "-", "range": "非空文本", "description": "提示词" },
+              { "name": "image", "location": "body", "type": "file|string", "required": true, "defaultValue": "-", "range": "PNG、JPEG、WEBP", "description": "输入图片" }
+            ],
+            "codeBlocks": [
+              { "label": "cURL（公网 URL）", "code": "curl {{baseUrl}}/v1/images/async/edits \\\n  -F 'model=gpt-image-2' \\\n  -F 'prompt=Edit this image' \\\n  -F 'image=https://example.com/input.png'" },
+              { "label": "cURL（本地文件）", "code": "curl {{baseUrl}}/v1/images/async/edits \\\n  -F 'model=gpt-image-2' \\\n  -F 'prompt=Edit this image' \\\n  -F 'image=@input.png'" }
+            ]
+          }
+        ]
+      },
+      { "key": "image_multi_reference", "category": "image", "mode": "api", "name": "多图参考生图", "endpointPath": "/v1/images/async/generations", "steps": [] },
+      { "key": "image_sequential_generation", "category": "image", "mode": "api", "name": "文生/图生组图", "endpointPath": "/v1/images/async/generations", "steps": [] },
+      {
+        "key": "video_capability_video_text_generation",
+        "category": "video",
+        "mode": "api",
+        "name": "文生视频",
+        "endpointPath": "/v1/videos",
+        "steps": [
+          {
+            "title": "HappyHorse 1.0 T2V",
+            "parameters": [
+              { "name": "model", "location": "body", "type": "string", "required": true, "defaultValue": "happyhorse-1.0-t2v", "range": "happyhorse-1.0-t2v", "description": "模型 ID" },
+              { "name": "prompt", "location": "body", "type": "string", "required": true, "defaultValue": "-", "range": "非空文本", "description": "提示词" },
+              { "name": "metadata.duration", "location": "body", "type": "number", "required": false, "defaultValue": "5", "range": "5-10", "description": "时长" }
+            ],
+            "codeBlocks": [
+              { "label": "cURL", "code": "curl {{baseUrl}}/v1/videos \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"model\": \"happyhorse-1.0-t2v\",\n    \"prompt\": \"A cinematic sunrise\",\n    \"metadata\": {\"duration\": 5}\n  }'" }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "video_capability_video_image_to_video",
+        "category": "video",
+        "mode": "api",
+        "name": "图生视频",
+        "endpointPath": "/v1/videos",
+        "steps": [
+          {
+            "title": "HappyHorse 1.0 I2V",
+            "parameters": [
+              { "name": "model", "location": "body", "type": "string", "required": true, "defaultValue": "happyhorse-1.0-i2v", "range": "happyhorse-1.0-i2v", "description": "模型 ID" },
+              { "name": "image", "location": "body", "type": "file|string", "required": true, "defaultValue": "-", "range": "图片", "description": "首帧" }
+            ],
+            "codeBlocks": [
+              { "label": "cURL（本地文件）", "code": "curl {{baseUrl}}/v1/videos \\\n  -X POST \\\n  -F 'model=happyhorse-1.0-i2v' \\\n  -F 'metadata={\"duration\":5}' \\\n  -F 'image=@first-frame.png'" }
+            ]
+          }
+        ]
+      },
+      { "key": "video_capability_video_first_last_frame", "category": "video", "mode": "api", "name": "首尾帧视频", "endpointPath": "/v1/videos", "steps": [] },
+      { "key": "video_capability_video_continuation", "category": "video", "mode": "api", "name": "视频续写", "endpointPath": "/v1/videos", "steps": [] },
+      { "key": "video_capability_video_reference_generation", "category": "video", "mode": "api", "name": "参考图生视频", "endpointPath": "/v1/videos", "steps": [] },
+      { "key": "video_capability_video_image_audio_to_video", "category": "video", "mode": "api", "name": "图片加音频生视频", "endpointPath": "/v1/videos", "steps": [] },
+      { "key": "video_capability_video_multimodal_to_video", "category": "video", "mode": "api", "name": "多模态生视频", "endpointPath": "/v1/videos", "steps": [] },
+      { "key": "video_capability_video_recreate", "category": "video", "mode": "api", "name": "视频复刻", "endpointPath": "/v1/videos", "steps": [] }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "models": [
+    { "key": "gpt-image-2", "category": "image" },
+    { "key": "happyhorse-1.0-t2v", "category": "video" },
+    { "key": "happyhorse-1.0-i2v", "category": "video" }
+  ]
+}

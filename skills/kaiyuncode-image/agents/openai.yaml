@@ -1,0 +1,4 @@
+interface:
+  display_name: "KaiyunCode 图片"
+  short_description: "调用 KaiyunCode 生产教程支持的异步图片模型生成或编辑图片"
+  default_prompt: "使用 KaiyunCode 生成或编辑图片"

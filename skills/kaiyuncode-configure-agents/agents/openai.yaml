@@ -1,0 +1,4 @@
+interface:
+  display_name: "KaiyunCode 客户端配置"
+  short_description: "配置 Codex 与 Claude Code 使用 KaiyunCode"
+  default_prompt: "配置我的 Codex 和 Claude Code 使用 KaiyunCode"

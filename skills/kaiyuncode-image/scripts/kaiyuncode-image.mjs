@@ -1,0 +1,652 @@
+#!/usr/bin/env node
+
+import { randomUUID } from "node:crypto";
+import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
+import { resolveCredential } from "../../../shared/credentials.mjs";
+import {
+  downloadResult,
+  pollTask,
+  submitTask,
+} from "../../../shared/http-client.mjs";
+import { redactSensitive } from "../../../shared/redaction.mjs";
+
+const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
+const CAPABILITIES_URL = new URL(
+  "../../../references/production-capabilities.json",
+  import.meta.url,
+);
+
+async function loadCapabilities() {
+  return JSON.parse(await readFile(CAPABILITIES_URL, "utf8"));
+}
+
+function present(value) {
+  return value !== undefined && value !== null && value !== "-";
+}
+
+function requiredPresent(value) {
+  return (
+    present(value) &&
+    (!Array.isArray(value) || value.length > 0) &&
+    (typeof value !== "string" || value.trim().length > 0)
+  );
+}
+
+function fileSatisfies(parameter, files) {
+  const leaf = parameter.name.replace(/\[\]$/u, "").split(".").at(-1);
+  return files.some(({ field }) => field === leaf);
+}
+
+function missingRequired(adapter, values, files) {
+  return adapter.parameters.filter((parameter) => {
+    if (!parameter.required || parameter.name === "model") return false;
+    const value = Object.hasOwn(values, parameter.name)
+      ? values[parameter.name]
+      : parameter.defaultValue;
+    return !requiredPresent(value) && !fileSatisfies(parameter, files);
+  });
+}
+
+function candidateAccepts(adapter, values, files) {
+  const names = new Set(adapter.parameters.map(({ name }) => name));
+  return (
+    Object.keys(values).every((name) => names.has(name)) &&
+    missingRequired(adapter, values, files).length === 0
+  );
+}
+
+function findAdapter(imageCapabilities, capabilityKey, model, values, files) {
+  if (RETIRED_MODELS.has(model)) {
+    throw new Error(`${model} is not available in the production model catalog`);
+  }
+  const capability = imageCapabilities.find(({ key }) => key === capabilityKey);
+  if (!capability) {
+    throw new Error(`Image capability ${capabilityKey} is not available`);
+  }
+  const matches = capability.adapters.filter(
+    (candidate) => candidate.model === model && !RETIRED_MODELS.has(candidate.model),
+  );
+  if (matches.length === 0) {
+    throw new Error(`Image model ${model} is not available for ${capabilityKey}`);
+  }
+  if (matches.length === 1) return matches[0];
+
+  const compatible = matches.filter((adapter) =>
+    candidateAccepts(adapter, values, files),
+  );
+  if (compatible.length === 1) return compatible[0];
+  if (compatible.length === 0) {
+    const allNames = new Set(matches.flatMap((adapter) => adapter.parameters.map(({ name }) => name)));
+    const unknown = Object.keys(values).find((name) => !allNames.has(name));
+    if (unknown) throw new Error(`Unknown adapter parameter: ${unknown}`);
+    const missing = matches.flatMap((adapter) => missingRequired(adapter, values, files));
+    if (missing.length > 0) {
+      throw new Error(`Required adapter parameter is missing: ${missing[0].name}`);
+    }
+    throw new Error(`No documented adapter profile matches ${capabilityKey} and ${model}`);
+  }
+  throw new Error(`Adapter profile is ambiguous for ${capabilityKey} and ${model}`);
+}
+
+function asValues(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+function validateRemoteMedia(parameter, value, files) {
+  const mediaParameter = /(?:image|mask|media|file|url)/iu.test(parameter.name);
+  const documentsUrl = /URL/iu.test(`${parameter.range ?? ""} ${parameter.description ?? ""}`);
+  if (!mediaParameter || !documentsUrl) return;
+  for (const item of asValues(value)) {
+    if (typeof item !== "string") continue;
+    if (/^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$/iu.test(item)) {
+      continue;
+    }
+    let url;
+    try {
+      url = new URL(item);
+    } catch {
+      if (fileSatisfies(parameter, files)) continue;
+      throw new Error(`${parameter.name} requires a public HTTPS URL, data URL, or matching multipart file`);
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password
+    ) {
+      throw new Error(`${parameter.name} requires a public HTTPS URL or data URL`);
+    }
+  }
+}
+
+function uniqueMatches(value, expression) {
+  return [...new Set([...value.matchAll(expression)].map((match) => match[0]))];
+}
+
+function simpleList(range) {
+  const parts = range.split(/[,、，]/u).map((item) => item.trim());
+  return parts.length > 1 &&
+    parts.every((item) => /^[A-Za-z0-9_.:/-]+$/u.test(item))
+    ? parts
+    : null;
+}
+
+function productionConstraint(parameter) {
+  const range = typeof parameter.range === "string" ? parameter.range.trim() : "";
+  if (parameter.name === "model") {
+    return { kind: "fixed", values: [String(parameter.defaultValue)] };
+  }
+  if (range === "非空文本" || range.toLowerCase() === "non-empty text") {
+    return { kind: "nonempty" };
+  }
+  if (/URL/iu.test(range)) return { kind: "media" };
+  if (parameter.type === "integer" && range === "整数") {
+    return { kind: "integer" };
+  }
+  if (parameter.type === "boolean") {
+    const booleans = uniqueMatches(range, /(?:true|false)/giu).map(
+      (value) => value.toLowerCase() === "true",
+    );
+    if (booleans.length > 0) return { kind: "boolean", values: booleans };
+  }
+  if (parameter.name === "aspect_ratio") {
+    const ratios = uniqueMatches(range, /\d+:\d+/gu);
+    if (ratios.length > 0) return { kind: "enum", values: ratios };
+  }
+  if (parameter.name === "size") {
+    const resolutions = uniqueMatches(range, /\d+x\d+/giu);
+    const tiers = uniqueMatches(range, /(?:512|\d+K)/giu);
+    if (range.includes(":") && range.includes("=") && resolutions.length > 0) {
+      return { kind: "enum", values: resolutions };
+    }
+    if (/或/u.test(range) && /像素尺寸/u.test(range) && tiers.length > 0) {
+      return { kind: "resolution", values: tiers };
+    }
+    const listed = simpleList(range);
+    if (listed) return { kind: "enum", values: listed };
+  }
+  if (parameter.type === "number" || parameter.type === "integer") {
+    const bounded = range.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/u);
+    if (bounded) {
+      return {
+        kind: parameter.name === "n" ? "count" : "number",
+        min: Number(bounded[1]),
+        max: Number(bounded[2]),
+      };
+    }
+    const maximum = range.match(/最多\s*(\d+(?:\.\d+)?)/u);
+    if (maximum) {
+      return {
+        kind: parameter.name === "n" ? "count" : "number",
+        min: parameter.name === "n" ? 1 : undefined,
+        max: Number(maximum[1]),
+      };
+    }
+    const fixed = range.match(/保持\s*(\d+(?:\.\d+)?)/u);
+    if (fixed) return { kind: "fixed", values: [fixed[1]] };
+  }
+  const listed = simpleList(range);
+  if (listed) return { kind: "enum", values: listed };
+  if (/^[A-Za-z0-9_.:/-]+$/u.test(range) && range.length > 0) {
+    return { kind: "fixed", values: [range] };
+  }
+  return null;
+}
+
+function sameConstraintValue(actual, expected) {
+  if (typeof actual === "boolean") return actual === expected;
+  return String(actual) === String(expected);
+}
+
+function validateRange(parameter, value) {
+  const range = parameter.range ?? "";
+  const description = parameter.description ?? "";
+  if (
+    (parameter.type === "number" || parameter.type === "integer") &&
+    (typeof value === "boolean" ||
+      (typeof value !== "number" && typeof value !== "string") ||
+      (typeof value === "string" && value.trim() === "") ||
+      !Number.isFinite(Number(value)))
+  ) {
+    return;
+  }
+  const constraint = productionConstraint(parameter);
+  if (!constraint) {
+    if (
+      present(parameter.defaultValue) &&
+      sameConstraintValue(value, parameter.defaultValue)
+    ) {
+      return;
+    }
+    throw new Error(`Cannot interpret production range for ${parameter.name}: ${range}`);
+  }
+  if (constraint.kind === "nonempty") {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`${parameter.name} is outside the documented range: ${range}`);
+    }
+  } else if (constraint.kind === "fixed" || constraint.kind === "enum" || constraint.kind === "boolean") {
+    if (!constraint.values.some((expected) => sameConstraintValue(value, expected))) {
+      throw new Error(`${parameter.name} is outside the documented range: ${range}`);
+    }
+  } else if (constraint.kind === "resolution") {
+    if (
+      !constraint.values.includes(String(value)) &&
+      !/^\d+x\d+$/u.test(String(value))
+    ) {
+      throw new Error(`${parameter.name} is outside the documented range: ${range}`);
+    }
+  } else if (constraint.kind === "integer") {
+    if (!Number.isInteger(Number(value))) {
+      throw new Error(`${parameter.name} is outside the documented range: ${range}`);
+    }
+  } else if (constraint.kind === "number" || constraint.kind === "count") {
+    const number = Number(value);
+    if (
+      !Number.isFinite(number) ||
+      (constraint.kind === "count" && !Number.isInteger(number)) ||
+      (constraint.min !== undefined && number < constraint.min) ||
+      (constraint.max !== undefined && number > constraint.max)
+    ) {
+      throw new Error(`${parameter.name} is outside the documented range: ${range}`);
+    }
+  }
+  if (Array.isArray(value)) {
+    const maximum = `${range} ${description}`.match(/最多\s*(\d+)\s*张/u);
+    if (maximum && value.length > Number(maximum[1])) {
+      throw new Error(`${parameter.name} accepts at most ${maximum[1]} reference images`);
+    }
+  }
+}
+
+function validateFiles(adapter, files) {
+  if (!Array.isArray(files)) throw new Error("files must be an array");
+  const uploadLimits = new Map();
+  for (const variant of adapter.requestVariants ?? []) {
+    if (variant.kind !== "multipart" || !Array.isArray(variant.fields)) continue;
+    const counts = new Map();
+    for (const field of variant.fields) {
+      if (typeof field.value !== "string" || !field.value.startsWith("@")) continue;
+      counts.set(field.name, (counts.get(field.name) ?? 0) + 1);
+    }
+    for (const [name, count] of counts) {
+      uploadLimits.set(name, Math.max(uploadLimits.get(name) ?? 0, count));
+    }
+  }
+  const provided = new Map();
+  for (const file of files) {
+    const count = (provided.get(file?.field) ?? 0) + 1;
+    provided.set(file?.field, count);
+    const limit = uploadLimits.get(file?.field) ?? 0;
+    if (limit === 0) {
+      throw new Error(`Multipart field ${file?.field} is not a documented upload field`);
+    }
+    if (count > limit) {
+      throw new Error(`Multipart field ${file.field} accepts at most ${limit} files`);
+    }
+  }
+}
+
+function validateValues(adapter, values, files) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    throw new Error("values must be an object");
+  }
+  const missing = missingRequired(adapter, values, files);
+  if (missing.length > 0) {
+    throw new Error(`Required adapter parameter is missing: ${missing[0].name}`);
+  }
+  for (const parameter of adapter.parameters) {
+    const value = Object.hasOwn(values, parameter.name)
+      ? values[parameter.name]
+      : parameter.defaultValue;
+    if (!present(value)) continue;
+    if (parameter.name === "prompt" && (typeof value !== "string" || value.trim() === "")) {
+      throw new Error("prompt must be non-empty");
+    }
+    if (Object.hasOwn(values, parameter.name)) validateRange(parameter, value);
+    validateRemoteMedia(parameter, value, files);
+  }
+  validateFiles(adapter, files);
+}
+
+function strictBase64Bytes(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("Invalid base64 image result");
+  }
+  const comma = value.indexOf(",");
+  const encoded = value.startsWith("data:")
+    ? value.slice(comma + 1)
+    : value;
+  if (
+    (value.startsWith("data:") &&
+      (comma < 0 || !/^data:image\/[a-z0-9.+-]+;base64,/iu.test(value))) ||
+    encoded.length === 0 ||
+    encoded.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+  ) {
+    throw new Error("Invalid base64 image result");
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.toString("base64") !== encoded) {
+    throw new Error("Invalid base64 image result");
+  }
+  return bytes;
+}
+
+export async function persistImageResult({
+  taskId,
+  completed,
+  output,
+  downloadResult: download = downloadResult,
+}) {
+  const destination = resolve(output ?? `kaiyuncode-${taskId}.png`);
+  if (typeof completed?.url === "string" && completed.url.length > 0) {
+    const downloaded = await download({ url: completed.url, output: destination });
+    return {
+      taskId,
+      status: completed.status,
+      url: redactSensitive(downloaded.url ?? completed.url),
+      path: resolve(downloaded.path),
+    };
+  }
+  if (Object.hasOwn(completed ?? {}, "b64Json")) {
+    const bytes = strictBase64Bytes(completed.b64Json);
+    await mkdir(dirname(destination), { recursive: true });
+    const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, bytes, { flag: "wx" });
+      await rename(temporary, destination);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
+    return { taskId, status: completed.status, path: destination };
+  }
+  throw new Error(`Completed image task ${taskId} had no URL or base64 result`);
+}
+
+const DEFAULT_DEPENDENCIES = {
+  loadCapabilities,
+  resolveCredential,
+  submitTask,
+  pollTask,
+  downloadResult,
+};
+
+export async function runImageTask({
+  capabilityKey,
+  model,
+  values = {},
+  files = [],
+  taskId,
+  output,
+  dryRun = false,
+  dependencies = {},
+}) {
+  const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+  if (taskId !== undefined) {
+    if (typeof taskId !== "string" || taskId.trim() === "") {
+      throw new Error("taskId must be a non-empty string");
+    }
+    if (dryRun) return { dryRun: true, resume: true, taskId };
+    const credential = await deps.resolveCredential();
+    const completed = await deps.pollTask({
+      taskId,
+      kind: "image",
+      apiKey: credential.apiKey,
+    });
+    const persist = deps.persistImageResult ?? persistImageResult;
+    return persist({
+      taskId,
+      completed,
+      output,
+      downloadResult: deps.downloadResult,
+    });
+  }
+  const capabilities = await deps.loadCapabilities();
+  const adapter = findAdapter(
+    capabilities.imageCapabilities,
+    capabilityKey,
+    model,
+    values,
+    files,
+  );
+  validateValues(adapter, values, files);
+  const request = buildAdapterRequest(adapter, values, files);
+  if (dryRun) {
+    return {
+      dryRun: true,
+      capabilityKey,
+      model,
+      request: request.summary,
+    };
+  }
+  const credential = await deps.resolveCredential();
+  const resolvedTaskId = await deps.submitTask({ request, apiKey: credential.apiKey });
+  const completed = await deps.pollTask({
+    taskId: resolvedTaskId,
+    kind: "image",
+    apiKey: credential.apiKey,
+  });
+  const persist = deps.persistImageResult ?? persistImageResult;
+  return persist({
+    taskId: resolvedTaskId,
+    completed,
+    output,
+    downloadResult: deps.downloadResult,
+  });
+}
+
+function takeCliValue(argv, index, option) {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${option} requires a value`);
+  }
+  return value;
+}
+
+export function parseCliArguments(argv) {
+  const parsed = {
+    capabilityKey: undefined,
+    model: undefined,
+    prompt: undefined,
+    params: [],
+    images: [],
+    mask: undefined,
+    taskId: undefined,
+    output: undefined,
+    dryRun: false,
+    help: false,
+  };
+  const scalarOptions = new Map([
+    ["--capability", "capabilityKey"],
+    ["--model", "model"],
+    ["--prompt", "prompt"],
+    ["--mask", "mask"],
+    ["--task-id", "taskId"],
+    ["--output", "output"],
+  ]);
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const option = argv[index];
+    if (option === "--api-key" || option.startsWith("--api-key=")) {
+      throw new Error("API keys are not accepted in command-line arguments");
+    }
+    if (option === "--dry-run") {
+      parsed.dryRun = true;
+      continue;
+    }
+    if (option === "--help" || option === "-h") {
+      parsed.help = true;
+      continue;
+    }
+    if (option === "--param") {
+      const assignment = takeCliValue(argv, index, option);
+      index += 1;
+      const separator = assignment.indexOf("=");
+      if (separator <= 0) throw new Error("--param requires key=value");
+      parsed.params.push([
+        assignment.slice(0, separator),
+        assignment.slice(separator + 1),
+      ]);
+      continue;
+    }
+    if (option === "--image") {
+      parsed.images.push(takeCliValue(argv, index, option));
+      index += 1;
+      continue;
+    }
+    const property = scalarOptions.get(option);
+    if (property) {
+      if (parsed[property] !== undefined) {
+        throw new Error(`${option} may only be provided once`);
+      }
+      parsed[property] = takeCliValue(argv, index, option);
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown option: ${option}`);
+  }
+  return parsed;
+}
+
+function mediaIsRemote(value) {
+  return /^(?:[a-z][a-z0-9+.-]*:|data:)/iu.test(value) &&
+    !value.startsWith("file:");
+}
+
+function addParam(values, name, value) {
+  if (name.endsWith("[]")) {
+    if (!Object.hasOwn(values, name)) values[name] = [];
+    if (!Array.isArray(values[name])) {
+      throw new Error(`CLI parameter ${name} conflicts with a scalar value`);
+    }
+    values[name].push(value);
+    return;
+  }
+  if (Object.hasOwn(values, name)) {
+    throw new Error(`CLI parameter ${name} may only be provided once`);
+  }
+  values[name] = value;
+}
+
+async function localFile(path, field, readFileImpl) {
+  let bytes;
+  try {
+    bytes = await readFileImpl(path);
+  } catch {
+    throw new Error(`Unable to read --${field} file ${basename(path)}`);
+  }
+  return {
+    field,
+    data: new Blob([bytes]),
+    filename: basename(path),
+  };
+}
+
+export async function prepareCliInput(parsed, { readFile: readFileImpl = readFile } = {}) {
+  if (parsed?.taskId !== undefined) {
+    return {
+      taskId: parsed.taskId,
+      output: parsed.output,
+      ...(parsed.dryRun ? { dryRun: true } : {}),
+    };
+  }
+  if (!parsed?.capabilityKey) throw new Error("--capability is required");
+  if (!parsed?.model) throw new Error("--model is required");
+  const values = Object.create(null);
+  for (const [name, value] of parsed.params ?? []) addParam(values, name, value);
+  if (parsed.prompt !== undefined) addParam(values, "prompt", parsed.prompt);
+  const files = [];
+
+  if (parsed.images.length > 0) {
+    if (parsed.capabilityKey === "image_edit") {
+      const remote = parsed.images.filter(mediaIsRemote);
+      const local = parsed.images.filter((value) => !mediaIsRemote(value));
+      if (remote.length > 0 && local.length > 0) {
+        throw new Error("image_edit accepts either remote --image values or documented local multipart files");
+      }
+      if (remote.length === 1) addParam(values, "image", remote[0]);
+      if (remote.length > 1) {
+        if (Object.hasOwn(values, "image")) {
+          throw new Error("CLI parameter image conflicts with repeated --image values");
+        }
+        values.image = remote;
+      }
+      for (const path of local) {
+        files.push(await localFile(path, "image", readFileImpl));
+      }
+      if (local.length > 0 && !Object.hasOwn(values, "image")) {
+        values.image = local[0];
+      }
+    } else if (
+      parsed.capabilityKey === "image_multi_reference" ||
+      parsed.capabilityKey === "image_sequential_generation"
+    ) {
+      for (const image of parsed.images) {
+        if (!mediaIsRemote(image)) {
+          throw new Error("This image capability requires public HTTPS image URLs or data URLs");
+        }
+        addParam(values, "image_urls[]", image);
+      }
+    } else {
+      throw new Error(`${parsed.capabilityKey} does not document --image input`);
+    }
+  }
+
+  if (parsed.mask !== undefined) {
+    if (mediaIsRemote(parsed.mask)) {
+      addParam(values, "mask", parsed.mask);
+    } else {
+      files.push(await localFile(parsed.mask, "mask", readFileImpl));
+      addParam(values, "mask", parsed.mask);
+    }
+  }
+
+  return {
+    capabilityKey: parsed.capabilityKey,
+    model: parsed.model,
+    values,
+    files,
+    taskId: parsed.taskId,
+    output: parsed.output,
+    dryRun: parsed.dryRun,
+  };
+}
+
+const CLI_USAGE = `Usage: kaiyuncode-image --capability KEY --model MODEL [options]
+
+Options:
+  --prompt TEXT          Image prompt
+  --param KEY=VALUE      Adapter parameter (repeatable)
+  --image URL_OR_PATH    Image input (repeatable)
+  --mask URL_OR_PATH     Edit mask
+  --task-id ID           Resume an asynchronous task without POST
+  --output PATH          Result path
+  --dry-run              Validate and print the redacted request without credentials
+  --help                 Show this help
+`;
+
+export async function executeCli(argv, dependencies = {}) {
+  const parsed = parseCliArguments(argv);
+  if (parsed.help) return { help: CLI_USAGE };
+  const input = await prepareCliInput(parsed, dependencies);
+  return runImageTask({ ...input, dependencies });
+}
+
+function isMainModule() {
+  return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+}
+
+if (isMainModule()) {
+  try {
+    const result = await executeCli(process.argv.slice(2));
+    if (result.help) process.stdout.write(result.help);
+    else process.stdout.write(`${JSON.stringify(redactSensitive(result), null, 2)}\n`);
+  } catch (error) {
+    process.stderr.write(`${String(redactSensitive(error?.message ?? error))}\n`);
+    process.exitCode = 1;
+  }
+}

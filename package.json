@@ -1,0 +1,10 @@
+{
+  "name": "kaiyuncode-tools-plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "sync:tutorial": "node scripts/sync-production-tutorial.mjs",
+    "validate": "npm test"
+  }
+}
