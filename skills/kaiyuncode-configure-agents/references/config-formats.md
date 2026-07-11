@@ -1,6 +1,8 @@
 # Configuration Formats
 
-The bundled script validates the key with `GET https://kaiyuncode.com/v1/models` before any local mutation. The response must be well-formed, and every selected Codex, Claude main, Opus, Sonnet, and Haiku model must be an account-available text model. It accepts `--dry-run`, `--codex-model`, `--claude-model`, `--claude-opus-model`, `--claude-sonnet-model`, and `--claude-haiku-model`. `--api-key` is intentionally forbidden.
+The bundled script validates the key with `GET https://kaiyuncode.com/v1/models` before any local mutation. The response must be well-formed, and every selected Codex, Claude main, Opus, Sonnet, and Haiku model must be an account-available text model. It accepts `--dry-run`, `--codex-model`, `--claude-model`, `--claude-opus-model`, `--claude-sonnet-model`, and `--claude-haiku-model`.
+
+API Key input priority: `KAIYUN_API_KEY` environment variable → non-TTY stdin pipe → interactive hidden TTY prompt. Users may paste the key in chat; the agent then supplies it via env or stdin. `--api-key` argv is intentionally forbidden (shell history).
 
 ## Codex
 

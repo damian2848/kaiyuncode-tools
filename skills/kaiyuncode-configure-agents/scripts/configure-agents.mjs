@@ -460,9 +460,42 @@ export async function readHiddenApiKey({ input = process.stdin, output = process
   });
 }
 
+/** Read a single-line API Key from a non-TTY stdin pipe (chat-paste → agent → pipe). */
+export async function readApiKeyFromStdin({ input = process.stdin } = {}) {
+  const chunks = [];
+  for await (const chunk of input) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  const apiKey = text.split(/\r?\n/u)[0]?.trim() ?? "";
+  if (!apiKey) {
+    throw new Error("No API Key received on stdin");
+  }
+  if (/[\u0000]/u.test(apiKey)) {
+    throw new Error("A valid KaiyunCode API Key is required");
+  }
+  return apiKey;
+}
+
+/**
+ * Resolve API Key without requiring a multi-step interactive ceremony.
+ * Priority: KAIYUN_API_KEY env → non-TTY stdin pipe → hidden TTY prompt.
+ * Never accept --api-key argv (shell history).
+ */
+export async function resolveApiKeyInput({
+  env = process.env,
+  input = process.stdin,
+  output = process.stderr,
+} = {}) {
+  const fromEnv = typeof env?.KAIYUN_API_KEY === "string" ? env.KAIYUN_API_KEY.trim() : "";
+  if (fromEnv) return fromEnv;
+  if (input?.isTTY) return readHiddenApiKey({ input, output });
+  return readApiKeyFromStdin({ input });
+}
+
 async function main() {
   const cli = parseCliArgs(process.argv.slice(2));
-  const apiKey = process.env.KAIYUN_API_KEY?.trim() || await readHiddenApiKey();
+  const apiKey = await resolveApiKeyInput();
   const result = await configureAgents({ ...cli, apiKey });
   const summary = cli.dryRun
     ? { dryRun: true, changes: result.preview }

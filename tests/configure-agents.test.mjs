@@ -8,7 +8,9 @@ import test from "node:test";
 import {
   configureAgents,
   parseCliArgs,
+  readApiKeyFromStdin,
   readHiddenApiKey,
+  resolveApiKeyInput,
 } from "../skills/kaiyuncode-configure-agents/scripts/configure-agents.mjs";
 
 const API_KEY = "test-key-that-must-not-leak";
@@ -438,4 +440,31 @@ test("hidden TTY input disables echo and never writes the API key", async () => 
   assert.deepEqual(input.rawModes, [true, false]);
   assert.equal(displayed, "KaiyunCode API Key: \n");
   assert.doesNotMatch(displayed, new RegExp(API_KEY));
+});
+
+
+test("readApiKeyFromStdin reads a single line without echoing", async () => {
+  async function* lines() {
+    yield Buffer.from(`${API_KEY}\ntrailing-ignored\n`);
+  }
+  assert.equal(await readApiKeyFromStdin({ input: lines() }), API_KEY);
+});
+
+test("resolveApiKeyInput prefers env over stdin and TTY", async () => {
+  const key = await resolveApiKeyInput({
+    env: { KAIYUN_API_KEY: API_KEY },
+    input: { isTTY: true },
+  });
+  assert.equal(key, API_KEY);
+});
+
+test("resolveApiKeyInput uses stdin when env is absent and input is not a TTY", async () => {
+  async function* lines() {
+    yield `${API_KEY}\n`;
+  }
+  const key = await resolveApiKeyInput({
+    env: {},
+    input: Object.assign(lines(), { isTTY: false }),
+  });
+  assert.equal(key, API_KEY);
 });

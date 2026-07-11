@@ -6,6 +6,7 @@ import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
+import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
 import { resolveCredential } from "../../../shared/credentials.mjs";
 import {
   downloadResult,
@@ -528,6 +529,16 @@ export async function runVideoTask({
   });
 }
 
+/**
+ * Run independent video jobs fully concurrently (N jobs → N concurrent tasks).
+ * Failures are isolated per job and do not cancel siblings.
+ */
+export async function runConcurrentVideoTasks(jobs, dependencies = {}) {
+  return runConcurrentTasks(jobs, (job) =>
+    runVideoTask({ ...job, dependencies: job.dependencies ?? dependencies }),
+  );
+}
+
 function takeCliValue(argv, index, option) {
   const value = argv[index + 1];
   if (value === undefined || value.startsWith("--")) {
@@ -547,6 +558,7 @@ export function parseCliArguments(argv) {
     videos: [],
     taskId: undefined,
     output: undefined,
+    jobsFile: undefined,
     dryRun: false,
     help: false,
   };
@@ -556,6 +568,7 @@ export function parseCliArguments(argv) {
     ["--prompt", "prompt"],
     ["--task-id", "taskId"],
     ["--output", "output"],
+    ["--jobs-file", "jobsFile"],
   ]);
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -815,6 +828,7 @@ export async function prepareCliInput(
 }
 
 const CLI_USAGE = `Usage: kaiyuncode-video --capability KEY --model MODEL [options]
+   or: kaiyuncode-video --jobs-file jobs.json [--dry-run]
 
 Options:
   --prompt TEXT          Video prompt (maps to prompt or input.prompt)
@@ -824,13 +838,90 @@ Options:
   --video URL_OR_PATH    Video input (repeatable)
   --task-id ID           Resume an asynchronous task without POST
   --output PATH          Result path
+  --jobs-file PATH       JSON array of independent jobs; all run concurrently
   --dry-run              Validate and print the redacted request without credentials
   --help                 Show this help
+
+Pass API keys via KAIYUN_API_KEY environment variable only (never argv).
 `;
+
+export async function loadJobsFile(path, { readFile: readFileImpl = readFile } = {}) {
+  let raw;
+  try {
+    raw = await readFileImpl(path, "utf8");
+  } catch {
+    throw new Error(`Unable to read jobs file ${basename(path)}`);
+  }
+  let jobs;
+  try {
+    jobs = JSON.parse(raw);
+  } catch {
+    throw new Error("jobs file must contain valid JSON");
+  }
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    throw new Error("jobs file must be a non-empty JSON array");
+  }
+  return jobs;
+}
+
+export async function prepareJobSpec(spec, options = {}) {
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
+    throw new Error("each job must be an object");
+  }
+  const dryRun = Boolean(options.forceDryRun || spec.dryRun);
+  const taskId = spec.taskId ?? spec.task_id;
+  if (taskId !== undefined) {
+    return { taskId, output: spec.output, dryRun };
+  }
+  if (spec.values && typeof spec.values === "object" && !Array.isArray(spec.values)) {
+    if (!(spec.capabilityKey ?? spec.capability)) {
+      throw new Error("each job requires capability or capabilityKey");
+    }
+    if (!spec.model) throw new Error("each job requires model");
+    return {
+      capabilityKey: spec.capabilityKey ?? spec.capability,
+      model: spec.model,
+      values: spec.values,
+      files: Array.isArray(spec.files) ? spec.files : [],
+      output: spec.output,
+      dryRun,
+    };
+  }
+  const params = Object.entries(spec.params ?? {}).map(([key, value]) => [
+    key,
+    String(value),
+  ]);
+  const input = await prepareCliInput(
+    {
+      capabilityKey: spec.capabilityKey ?? spec.capability,
+      model: spec.model,
+      prompt: spec.prompt,
+      params,
+      images: spec.images ?? [],
+      audios: spec.audios ?? [],
+      videos: spec.videos ?? [],
+      taskId: undefined,
+      output: spec.output,
+      dryRun,
+    },
+    options,
+  );
+  return { ...input, dryRun };
+}
 
 export async function executeCli(argv, dependencies = {}) {
   const parsed = parseCliArguments(argv);
   if (parsed.help) return { help: CLI_USAGE };
+  if (parsed.jobsFile) {
+    const specs = await loadJobsFile(parsed.jobsFile, dependencies);
+    const jobs = await Promise.all(
+      specs.map((spec) =>
+        prepareJobSpec(spec, { ...dependencies, forceDryRun: parsed.dryRun }),
+      ),
+    );
+    const results = await runConcurrentVideoTasks(jobs, dependencies);
+    return { concurrent: true, count: results.length, results };
+  }
   const input = await prepareCliInput(parsed, dependencies);
   return runVideoTask({ ...input, dependencies });
 }

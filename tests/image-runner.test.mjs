@@ -11,6 +11,8 @@ import {
   parseCliArguments,
   persistImageResult,
   prepareCliInput,
+  prepareJobSpec,
+  runConcurrentImageTasks,
   runImageTask,
 } from "../skills/kaiyuncode-image/scripts/kaiyuncode-image.mjs";
 
@@ -752,4 +754,87 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
   assert.equal(output.dryRun, true);
   assert.equal(output.request.path, "/v1/images/async/generations");
   assert.ok(!`${result.stdout}${result.stderr}`.includes("dry-run-must-not-be-read"));
+});
+
+
+test("concurrent image jobs submit all before polls complete", async () => {
+  const order = [];
+  let submitCount = 0;
+  const pollGates = [];
+  const deps = createImageDeps();
+  deps.submitTask = async () => {
+    submitCount += 1;
+    const id = `img_${submitCount}`;
+    order.push(`submit:${id}`);
+    return id;
+  };
+  deps.pollTask = async ({ taskId }) => {
+    order.push(`poll-start:${taskId}`);
+    await new Promise((resolve) => {
+      pollGates.push(resolve);
+    });
+    order.push(`poll-end:${taskId}`);
+    return { taskId, status: "completed", url: "https://example.test/result.png" };
+  };
+  deps.persistImageResult = async ({ taskId }) => {
+    order.push(`persist:${taskId}`);
+    return { taskId, status: "completed", path: `/absolute/${taskId}.png` };
+  };
+
+  const pending = runConcurrentImageTasks(
+    [
+      { ...baseInput, output: "/tmp/a.png" },
+      { ...baseInput, output: "/tmp/b.png" },
+      { ...baseInput, output: "/tmp/c.png" },
+    ],
+    deps,
+  );
+
+  // Allow concurrent submits/polls to schedule
+  for (let i = 0; i < 20 && pollGates.length < 3; i += 1) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(submitCount, 3);
+  assert.equal(pollGates.length, 3);
+  assert.ok(order.filter((item) => item.startsWith("submit:")).length === 3);
+  // All three submits happened before any poll finished
+  const firstPollEnd = order.findIndex((item) => item.startsWith("poll-end:"));
+  assert.equal(firstPollEnd, -1);
+
+  for (const release of pollGates) release();
+  const results = await pending;
+  assert.equal(results.length, 3);
+  assert.ok(results.every((item) => item.ok));
+  assert.equal(results.filter((item) => item.ok).length, 3);
+});
+
+test("concurrent image jobs isolate failures", async () => {
+  const deps = createImageDeps();
+  let submitCount = 0;
+  deps.submitTask = async () => {
+    submitCount += 1;
+    if (submitCount === 2) throw new Error("submission status is unknown");
+    return `img_${submitCount}`;
+  };
+  const results = await runConcurrentImageTasks(
+    [baseInput, baseInput, baseInput],
+    deps,
+  );
+  assert.equal(results.length, 3);
+  assert.equal(results.filter((item) => item.ok).length, 2);
+  assert.equal(results.filter((item) => !item.ok).length, 1);
+  assert.match(results.find((item) => !item.ok).error, /submission status is unknown/);
+});
+
+test("prepareJobSpec accepts capability alias and values object", async () => {
+  const job = await prepareJobSpec({
+    capability: "image_text_generation",
+    model: "gpt-image-2",
+    values: { prompt: "batch job" },
+    output: "./out.png",
+    dryRun: true,
+  });
+  assert.equal(job.capabilityKey, "image_text_generation");
+  assert.equal(job.values.prompt, "batch job");
+  assert.equal(job.dryRun, true);
 });

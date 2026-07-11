@@ -27,11 +27,23 @@ npm run validate
 codex plugin add kaiyuncode-tools@personal
 ```
 
-安装与首次使用时会先询问是否已有 KaiyunCode API Key；没有密钥时引导注册、充值、创建密钥。
+## 快速配置
+
+用户可直接把 API Key **粘贴到聊天框**。Agent 用环境变量或 stdin 传给配置脚本（禁止 `--api-key` argv）：
+
+```bash
+KAIYUN_API_KEY='...' node skills/kaiyuncode-configure-agents/scripts/configure-agents.mjs --dry-run
+```
+
+只有用户明确说「没有密钥」时，才引导注册 → 充值 → 创建密钥。
+
+## 多任务并发
+
+图片 / 视频支持 `--jobs-file`：JSON 数组里有多少个独立任务，就启动多少路并发提交与轮询，不会串行等待。
 
 ## 安全说明
 
-- API Key 不要写进命令行参数或提交到仓库。
+- API Key 不要写进命令行参数或提交到仓库；聊天粘贴后由 Agent 通过 env/stdin 使用，回复中不要回显完整 Key。
 - 付费图片 / 视频请求必须先 dry-run，再取得用户明确授权后提交。
 - 仓库不含真实密钥；`references/production-capabilities.json` 是公开生产教程与模型目录的已验证快照。
 

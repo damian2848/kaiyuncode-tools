@@ -9,7 +9,7 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.version, "0.1.1");
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
@@ -27,7 +27,7 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
       "utf8",
     );
     assert.match(skill, new RegExp(`name: ${name}`));
-    assert.match(skill, /你是否已经有 KaiyunCode API Key？/);
+    assert.match(skill, /粘贴.*API Key|API Key.*粘贴|KAIYUN_API_KEY/);
     assert.match(skill, new RegExp(script.replaceAll(".", "\\.")));
   }
 });

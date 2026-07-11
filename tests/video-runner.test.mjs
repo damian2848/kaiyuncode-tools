@@ -11,6 +11,8 @@ import {
   parseCliArguments,
   persistVideoResult,
   prepareCliInput,
+  prepareJobSpec,
+  runConcurrentVideoTasks,
   runVideoTask,
 } from "../skills/kaiyuncode-video/scripts/kaiyuncode-video.mjs";
 
@@ -722,4 +724,52 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
   assert.ok(
     !`${result.stdout}${result.stderr}`.includes("dry-run-must-not-be-read"),
   );
+});
+
+
+test("concurrent video jobs submit all before polls complete", async () => {
+  let submitCount = 0;
+  const pollGates = [];
+  const deps = createVideoDeps();
+  deps.submitTask = async () => {
+    submitCount += 1;
+    return `vid_${submitCount}`;
+  };
+  deps.pollTask = async ({ taskId, kind }) => {
+    assert.equal(kind, "video");
+    await new Promise((resolve) => {
+      pollGates.push(resolve);
+    });
+    return { taskId, status: "completed", url: "https://example.test/result.mp4" };
+  };
+  deps.persistVideoResult = async ({ taskId }) => ({
+    taskId,
+    status: "completed",
+    path: `/absolute/${taskId}.mp4`,
+  });
+
+  const pending = runConcurrentVideoTasks(
+    [baseInput, baseInput, baseInput],
+    deps,
+  );
+  for (let i = 0; i < 20 && pollGates.length < 3; i += 1) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(submitCount, 3);
+  assert.equal(pollGates.length, 3);
+  for (const release of pollGates) release();
+  const results = await pending;
+  assert.equal(results.length, 3);
+  assert.ok(results.every((item) => item.ok));
+});
+
+test("prepareJobSpec maps video capability and values", async () => {
+  const job = await prepareJobSpec({
+    capability: "video_capability_video_text_generation",
+    model: "omni_flash",
+    values: { prompt: "batch video" },
+    dryRun: true,
+  });
+  assert.equal(job.capabilityKey, "video_capability_video_text_generation");
+  assert.equal(job.values.prompt, "batch video");
 });

@@ -1,6 +1,6 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Configure agent clients and run KaiyunCode image and video workflows.",
   "author": {
     "name": "KaiyunCode"
