@@ -1,6 +1,6 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Configure agent clients and run KaiyunCode image and video workflows.",
   "author": {
     "name": "KaiyunCode"
@@ -9,8 +9,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "KaiyunCode Tools",
-    "shortDescription": "Configure agents and create media with KaiyunCode.",
-    "longDescription": "Configure Codex and Claude Code for KaiyunCode, then run production-documented asynchronous image and video workflows.",
+    "shortDescription": "\u5b89\u88c5\u540e\u7c98\u8d34\u5bc6\u94a5\u7528\u4e8e\u56fe\u7247/\u89c6\u9891\uff1b\u6309\u9700\u914d\u7f6e\u5ba2\u6237\u7aef\u3002",
+    "longDescription": "\u5b89\u88c5\u540e\u5728 Codex \u804a\u5929\u6846\u7c98\u8d34 API Key\uff0c\u4ec5\u4fdd\u5b58\u4f9b\u56fe\u7247\u4e0e\u89c6\u9891\u4f7f\u7528\u3002\u9ed8\u8ba4\u4e0d\u6539 Codex / Claude Code\uff1b\u53ea\u6709\u7528\u6237\u660e\u786e\u8981\u6c42\u65f6\u624d\u914d\u7f6e\u6587\u672c\u5ba2\u6237\u7aef\u3002",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [
@@ -19,9 +19,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "配置我的 Codex 和 Claude Code 使用 KaiyunCode",
-      "使用 KaiyunCode 生成或编辑图片",
-      "使用 KaiyunCode 生成或编辑视频"
+      "\u63d2\u4ef6\u5df2\u5b89\u88c5\uff0c\u8bf7\u628a KaiyunCode API Key \u7c98\u8d34\u5230\u804a\u5929\u6846\u4fdd\u5b58",
+      "\u4f7f\u7528 KaiyunCode \u751f\u6210\u6216\u7f16\u8f91\u56fe\u7247",
+      "\u4f7f\u7528 KaiyunCode \u751f\u6210\u6216\u7f16\u8f91\u89c6\u9891"
     ]
   }
 }

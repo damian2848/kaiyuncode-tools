@@ -8,6 +8,9 @@ import {
   CredentialConflictError,
   CredentialNotFoundError,
   resolveCredential,
+  saveApiKeyFile,
+  readApiKeyFile,
+  getDefaultCredentialFilePath,
 } from "../shared/credentials.mjs";
 
 async function createFixture(t, { codexConfig, codexKey, claudeSettings } = {}) {
@@ -202,4 +205,46 @@ test("lookalike and insecure base URLs are not treated as KaiyunCode", async (t)
   await assert.rejects(resolveCredential({ ...homes, env: {} }), {
     name: "CredentialNotFoundError",
   });
+});
+
+
+test("saveApiKeyFile writes a private media credential file without agent config", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kaiyun-save-key-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "kaiyun-tools.env");
+  const result = await saveApiKeyFile("media-only-secret", { path });
+  assert.equal(result.source, "file");
+  assert.equal(result.path, path);
+  assert.equal(await readApiKeyFile(path), "media-only-secret");
+  const { mode } = await import("node:fs/promises").then((fs) => fs.stat(path));
+  assert.equal(mode & 0o777, 0o600);
+});
+
+test("resolveCredential reads the media credential file after env", async (t) => {
+  const homes = await createFixture(t, {});
+  const path = join(homes.codexHome, "kaiyun-tools.env");
+  await saveApiKeyFile("file-secret", { path });
+  assert.deepEqual(
+    await resolveCredential({ ...homes, env: {}, credentialFile: path }),
+    { apiKey: "file-secret", source: "file" },
+  );
+});
+
+test("legacy kaiyun-video.env is still accepted", async (t) => {
+  const homes = await createFixture(t, {});
+  const legacy = join(homes.codexHome, "kaiyun-video.env");
+  await writeFile(legacy, "KAIYUN_API_KEY=legacy-secret\n", { mode: 0o600 });
+  assert.deepEqual(
+    await resolveCredential({
+      ...homes,
+      env: {},
+      credentialFile: join(homes.codexHome, "missing.env"),
+      legacyCredentialFile: legacy,
+    }),
+    { apiKey: "legacy-secret", source: "file" },
+  );
+});
+
+test("default credential path stays under Codex home", () => {
+  assert.match(getDefaultCredentialFilePath("/tmp/demo-codex"), /kaiyun-tools\.env$/);
 });

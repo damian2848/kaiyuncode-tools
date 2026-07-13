@@ -98,7 +98,7 @@ This path skips capability loading and POST request construction, resolves a
 credential for GET polling, and persists the result.
 
 API keys are deliberately not accepted as CLI arguments. Credential resolution
-order is `KAIYUN_API_KEY`, active KaiyunCode Codex login, then KaiyunCode Claude
+order is `KAIYUN_API_KEY`, `~/.codex/kaiyun-tools.env` (or legacy `kaiyun-video.env`), active KaiyunCode Codex login, then KaiyunCode Claude
 settings. Conflicting sources stop execution.
 
 ## Results

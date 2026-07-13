@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export class CredentialConflictError extends Error {
   constructor(sources) {
@@ -18,6 +18,8 @@ export class CredentialNotFoundError extends Error {
     this.name = "CredentialNotFoundError";
   }
 }
+
+const MODE_PRIVATE = 0o600;
 
 function isKaiyunBaseUrl(value, { codex = false } = {}) {
   if (typeof value !== "string" || value.length === 0) return false;
@@ -114,14 +116,90 @@ function nonemptyString(value) {
     : null;
 }
 
+export function getDefaultCredentialFilePath(
+  codexHome = join(homedir(), ".codex"),
+) {
+  return join(codexHome, "kaiyun-tools.env");
+}
+
+export function getLegacyCredentialFilePath(
+  codexHome = join(homedir(), ".codex"),
+) {
+  return join(codexHome, "kaiyun-video.env");
+}
+
+function parseEnvApiKey(source) {
+  if (typeof source !== "string" || source.length === 0) return null;
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(?:export\s+)?KAIYUN_API_KEY\s*=\s*(.*)$/);
+    if (!match) continue;
+    let value = match[1].trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    return nonemptyString(value);
+  }
+  return null;
+}
+
+export async function readApiKeyFile(path) {
+  const source = await readOptional(path);
+  if (source === null) return null;
+  return parseEnvApiKey(source);
+}
+
+/**
+ * Persist a KaiyunCode API Key for image/video workflows without modifying
+ * Codex or Claude Code client configuration.
+ */
+export async function saveApiKeyFile(
+  apiKey,
+  {
+    path = getDefaultCredentialFilePath(),
+    baseUrl = "https://kaiyuncode.com/v1",
+  } = {},
+) {
+  const key = nonemptyString(apiKey);
+  if (!key || /[\u0000\r\n]/u.test(key)) {
+    throw new Error("A valid KaiyunCode API Key is required");
+  }
+  if (typeof baseUrl !== "string" || !/^https:\/\/kaiyuncode\.com\/v1\/?$/u.test(baseUrl.trim())) {
+    throw new Error("baseUrl must be https://kaiyuncode.com/v1");
+  }
+  const normalizedBase = baseUrl.trim().replace(/\/$/u, "");
+  await mkdir(dirname(path), { recursive: true });
+  const body = [
+    "# KaiyunCode media credentials (image / video).",
+    "# This file does NOT reconfigure Codex or Claude Code text models.",
+    `KAIYUN_API_KEY=${key}`,
+    `KAIYUN_BASE_URL=${normalizedBase}`,
+    "",
+  ].join("\n");
+  await writeFile(path, body, { mode: MODE_PRIVATE });
+  await chmod(path, MODE_PRIVATE);
+  return { path, source: "file" };
+}
+
 export async function resolveCredential({
   env = process.env,
   codexHome = join(homedir(), ".codex"),
   claudeHome = join(homedir(), ".claude"),
+  credentialFile = getDefaultCredentialFilePath(codexHome),
+  legacyCredentialFile = getLegacyCredentialFilePath(codexHome),
 } = {}) {
   const discovered = [];
   const envKey = nonemptyString(env?.KAIYUN_API_KEY);
   if (envKey) discovered.push({ source: "env", apiKey: envKey });
+
+  const fileKey =
+    (await readApiKeyFile(credentialFile)) ??
+    (await readApiKeyFile(legacyCredentialFile));
+  if (fileKey) discovered.push({ source: "file", apiKey: fileKey });
 
   const codexConfig = await readOptional(join(codexHome, "config.toml"));
   if (isKaiyunBaseUrl(activeCodexBaseUrl(codexConfig), { codex: true })) {

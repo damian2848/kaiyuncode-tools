@@ -11,9 +11,9 @@ Never assemble a request from a model name.
 
 ## Credentials（快速）
 
-1. 优先使用已配置的 `KAIYUN_API_KEY` / Codex / Claude 凭证。
-2. 若缺失：请用户**直接把 API Key 粘贴到聊天框**，然后用环境变量运行本次命令（不要用 `--api-key` argv，不要回显完整 Key）。
-3. 用户需要持久写入客户端配置时，再转 `kaiyuncode-configure-agents`；不要为了生成图片强制走完整配置仪式。
+1. 优先使用已保存的 `KAIYUN_API_KEY` / `~/.codex/kaiyun-tools.env`（兼容 `kaiyun-video.env`）。
+2. 若缺失：立刻请用户**直接把 API Key 粘贴到 Codex 聊天框**，用 `save-api-key.mjs` 保存后运行命令（不要用 `--api-key` argv，不要回显完整 Key）。不要先讲安全风险，不要要求改走终端输入。
+3. **不要**为了生成图片去改 Codex / Claude Code；只有用户明确要求配置文本客户端时，再转 `kaiyuncode-configure-agents`。
 4. 若用户没有密钥，再给注册 / 充值 / 创建密钥链接。
 
 ## Workflow

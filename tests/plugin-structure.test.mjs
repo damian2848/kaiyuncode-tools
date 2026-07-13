@@ -9,12 +9,13 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.1.1");
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
   assert.equal(manifest.interface.category, "Developer Tools");
   assert.deepEqual(manifest.interface.capabilities, ["Interactive", "Read", "Write"]);
+  assert.match(manifest.interface.defaultPrompt[0], /API Key|粘贴/);
 
   const skills = {
     "kaiyuncode-configure-agents": "scripts/configure-agents.mjs",
@@ -30,6 +31,21 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     assert.match(skill, /粘贴.*API Key|API Key.*粘贴|KAIYUN_API_KEY/);
     assert.match(skill, new RegExp(script.replaceAll(".", "\\.")));
   }
+
+  const configureSkill = await readFile(
+    new URL("skills/kaiyuncode-configure-agents/SKILL.md", root),
+    "utf8",
+  );
+  assert.match(configureSkill, /save-api-key\.mjs|保存媒体凭证|仅保存/);
+  assert.match(configureSkill, /只有.*明确|用户明确要求/);
+  assert.match(configureSkill, /不要在安装后默认执行/);
+  assert.match(
+    await readFile(
+      new URL("skills/kaiyuncode-configure-agents/scripts/save-api-key.mjs", root),
+      "utf8",
+    ),
+    /saveApiKeyFile/,
+  );
 });
 
 test("package exposes the plugin maintenance commands", async () => {
