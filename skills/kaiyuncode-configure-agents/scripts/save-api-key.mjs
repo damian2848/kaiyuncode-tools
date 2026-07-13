@@ -10,7 +10,8 @@ import {
 import { redactSensitive } from "../../../shared/redaction.mjs";
 
 function safeErrorMessage(value, apiKey) {
-  const raw = value instanceof Error ? value.message : String(value ?? "unknown error");
+  const raw =
+    value instanceof Error ? value.message : String(value ?? "unknown error");
   const withoutKey = apiKey ? raw.split(apiKey).join("[REDACTED]") : raw;
   return String(redactSensitive(withoutKey));
 }
@@ -26,11 +27,17 @@ async function readApiKeyFromStdin(input = process.stdin) {
   return apiKey;
 }
 
-async function resolveApiKeyInput({ env = process.env, input = process.stdin } = {}) {
-  const fromEnv = typeof env?.KAIYUN_API_KEY === "string" ? env.KAIYUN_API_KEY.trim() : "";
+async function resolveApiKeyInput({
+  env = process.env,
+  input = process.stdin,
+} = {}) {
+  const fromEnv =
+    typeof env?.KAIYUN_API_KEY === "string" ? env.KAIYUN_API_KEY.trim() : "";
   if (fromEnv) return fromEnv;
   if (input?.isTTY) {
-    throw new Error("Pass the API Key via KAIYUN_API_KEY or stdin pipe from the chat paste");
+    throw new Error(
+      "Pass the API Key via KAIYUN_API_KEY or stdin pipe from the chat paste",
+    );
   }
   return readApiKeyFromStdin(input);
 }
@@ -38,7 +45,9 @@ async function resolveApiKeyInput({ env = process.env, input = process.stdin } =
 async function main() {
   for (const argument of process.argv.slice(2)) {
     if (argument === "--api-key" || argument.startsWith("--api-key=")) {
-      throw new Error("API Key must not be supplied as a command-line argument");
+      throw new Error(
+        "API Key must not be supplied as a command-line argument",
+      );
     }
     throw new Error(`Unknown option: ${argument}`);
   }
@@ -53,7 +62,7 @@ async function main() {
           source: result.source,
           path: result.path,
           defaultPath: getDefaultCredentialFilePath(),
-          note: "Media credentials only. Codex / Claude Code were not modified.",
+          note: "Canonical media credentials only. Codex / Claude Code were not modified. Use configure-agents.mjs only when the user explicitly asks to configure text clients.",
         },
         null,
         2,
@@ -65,7 +74,10 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
   main().catch((error) => {
     process.stderr.write(`${safeErrorMessage(error)}\n`);
     process.exitCode = 1;

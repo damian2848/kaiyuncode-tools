@@ -2,24 +2,34 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+const MODE_PRIVATE = 0o600;
+const MEDIA_SOURCES = new Set(["env", "file"]);
+const CLIENT_SOURCES = new Set(["codex", "claude"]);
+const ALL_SOURCES = new Set(["env", "file", "codex", "claude"]);
+
 export class CredentialConflictError extends Error {
-  constructor(sources) {
-    super(
-      `Conflicting KaiyunCode credentials were found in: ${sources.join(", ")}`,
-    );
+  constructor(sources, { hint } = {}) {
+    const list = sources.join(", ");
+    const guidance =
+      hint ??
+      "Media tasks use env > file only. Save one canonical key with save-api-key.mjs, or pass KAIYUN_API_KEY for this run. Codex/Claude credentials are ignored when env or file is present.";
+    super(`Conflicting KaiyunCode credentials were found in: ${list}. ${guidance}`);
     this.name = "CredentialConflictError";
     this.sources = sources;
   }
 }
 
 export class CredentialNotFoundError extends Error {
-  constructor() {
-    super("No KaiyunCode API Key was found");
+  constructor(source) {
+    super(
+      source
+        ? `No KaiyunCode API Key was found in source: ${source}`
+        : "No KaiyunCode API Key was found. Paste a key in chat and save with save-api-key.mjs, or set KAIYUN_API_KEY.",
+    );
     this.name = "CredentialNotFoundError";
+    this.source = source ?? null;
   }
 }
-
-const MODE_PRIVATE = 0o600;
 
 function isKaiyunBaseUrl(value, { codex = false } = {}) {
   if (typeof value !== "string" || value.length === 0) return false;
@@ -154,8 +164,8 @@ export async function readApiKeyFile(path) {
 }
 
 /**
- * Persist a KaiyunCode API Key for image/video workflows without modifying
- * Codex or Claude Code client configuration.
+ * Persist the canonical KaiyunCode API Key for image/video workflows.
+ * Does not modify Codex or Claude Code client configuration.
  */
 export async function saveApiKeyFile(
   apiKey,
@@ -168,14 +178,18 @@ export async function saveApiKeyFile(
   if (!key || /[\u0000\r\n]/u.test(key)) {
     throw new Error("A valid KaiyunCode API Key is required");
   }
-  if (typeof baseUrl !== "string" || !/^https:\/\/kaiyuncode\.com\/v1\/?$/u.test(baseUrl.trim())) {
+  if (
+    typeof baseUrl !== "string" ||
+    !/^https:\/\/kaiyuncode\.com\/v1\/?$/u.test(baseUrl.trim())
+  ) {
     throw new Error("baseUrl must be https://kaiyuncode.com/v1");
   }
   const normalizedBase = baseUrl.trim().replace(/\/$/u, "");
   await mkdir(dirname(path), { recursive: true });
   const body = [
-    "# KaiyunCode media credentials (image / video).",
-    "# This file does NOT reconfigure Codex or Claude Code text models.",
+    "# KaiyunCode canonical media credentials (image / video).",
+    "# This file is the default authority for media tasks.",
+    "# Codex / Claude Code are separate; sync them only via configure-agents when asked.",
     `KAIYUN_API_KEY=${key}`,
     `KAIYUN_BASE_URL=${normalizedBase}`,
     "",
@@ -185,21 +199,35 @@ export async function saveApiKeyFile(
   return { path, source: "file" };
 }
 
-export async function resolveCredential({
-  env = process.env,
-  codexHome = join(homedir(), ".codex"),
-  claudeHome = join(homedir(), ".claude"),
-  credentialFile = getDefaultCredentialFilePath(codexHome),
-  legacyCredentialFile = getLegacyCredentialFilePath(codexHome),
-} = {}) {
+async function discoverSources({
+  env,
+  codexHome,
+  claudeHome,
+  credentialFile,
+  legacyCredentialFile,
+}) {
   const discovered = [];
+
   const envKey = nonemptyString(env?.KAIYUN_API_KEY);
   if (envKey) discovered.push({ source: "env", apiKey: envKey });
 
-  const fileKey =
-    (await readApiKeyFile(credentialFile)) ??
-    (await readApiKeyFile(legacyCredentialFile));
-  if (fileKey) discovered.push({ source: "file", apiKey: fileKey });
+  const primaryFileKey = await readApiKeyFile(credentialFile);
+  if (primaryFileKey) {
+    discovered.push({
+      source: "file",
+      apiKey: primaryFileKey,
+      path: credentialFile,
+    });
+  } else {
+    const legacyFileKey = await readApiKeyFile(legacyCredentialFile);
+    if (legacyFileKey) {
+      discovered.push({
+        source: "file",
+        apiKey: legacyFileKey,
+        path: legacyCredentialFile,
+      });
+    }
+  }
 
   const codexConfig = await readOptional(join(codexHome, "config.toml"));
   if (isKaiyunBaseUrl(activeCodexBaseUrl(codexConfig), { codex: true })) {
@@ -218,9 +246,95 @@ export async function resolveCredential({
     if (claudeKey) discovered.push({ source: "claude", apiKey: claudeKey });
   }
 
-  if (discovered.length === 0) throw new CredentialNotFoundError();
-  if (new Set(discovered.map(({ apiKey }) => apiKey)).size > 1) {
-    throw new CredentialConflictError(discovered.map(({ source }) => source));
-  }
-  return discovered[0];
+  return discovered;
 }
+
+function pickBySource(discovered, source) {
+  return discovered.find((entry) => entry.source === source) ?? null;
+}
+
+/**
+ * Resolve the API Key for media (image/video) tasks.
+ *
+ * Default authority model:
+ * 1. Explicit preferSource / --credential-source when provided
+ * 2. env (session override via KAIYUN_API_KEY)
+ * 3. file (~/.codex/kaiyun-tools.env, legacy kaiyun-video.env)
+ * 4. Optional client fallback (codex then claude) only when env and file are absent
+ *
+ * Codex/Claude keys are never mixed with env/file. Different client keys only
+ * conflict when both are used as the sole fallback path.
+ */
+export async function resolveCredential({
+  env = process.env,
+  codexHome = join(homedir(), ".codex"),
+  claudeHome = join(homedir(), ".claude"),
+  credentialFile = getDefaultCredentialFilePath(codexHome),
+  legacyCredentialFile = getLegacyCredentialFilePath(codexHome),
+  preferSource,
+  allowClientFallback = true,
+} = {}) {
+  if (preferSource !== undefined && !ALL_SOURCES.has(preferSource)) {
+    throw new Error(
+      `Invalid credential source: ${preferSource}. Use env, file, codex, or claude.`,
+    );
+  }
+
+  const discovered = await discoverSources({
+    env,
+    codexHome,
+    claudeHome,
+    credentialFile,
+    legacyCredentialFile,
+  });
+
+  if (preferSource) {
+    const chosen = pickBySource(discovered, preferSource);
+    if (!chosen) throw new CredentialNotFoundError(preferSource);
+    return {
+      apiKey: chosen.apiKey,
+      source: chosen.source,
+      ...(chosen.path ? { path: chosen.path } : {}),
+    };
+  }
+
+  const envEntry = pickBySource(discovered, "env");
+  if (envEntry) {
+    return { apiKey: envEntry.apiKey, source: "env" };
+  }
+
+  const fileEntry = pickBySource(discovered, "file");
+  if (fileEntry) {
+    return {
+      apiKey: fileEntry.apiKey,
+      source: "file",
+      ...(fileEntry.path ? { path: fileEntry.path } : {}),
+    };
+  }
+
+  if (!allowClientFallback) {
+    throw new CredentialNotFoundError();
+  }
+
+  const clients = discovered.filter((entry) => CLIENT_SOURCES.has(entry.source));
+  if (clients.length === 0) throw new CredentialNotFoundError();
+
+  const uniqueKeys = new Set(clients.map(({ apiKey }) => apiKey));
+  if (uniqueKeys.size > 1) {
+    throw new CredentialConflictError(clients.map(({ source }) => source), {
+      hint: "No media env/file key was found, and Codex vs Claude KaiyunCode keys differ. Save one canonical key with save-api-key.mjs (recommended), or pass --credential-source codex|claude.",
+    });
+  }
+  return { apiKey: clients[0].apiKey, source: clients[0].source };
+}
+
+export function describeCredentialSource(credential) {
+  if (!credential?.source) return "unknown";
+  if (credential.source === "file" && credential.path) {
+    return `file ${credential.path}`;
+  }
+  if (credential.source === "env") return "env KAIYUN_API_KEY";
+  return credential.source;
+}
+
+export { MEDIA_SOURCES, CLIENT_SOURCES, ALL_SOURCES };

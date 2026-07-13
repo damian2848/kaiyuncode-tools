@@ -72,8 +72,15 @@ Do not treat this summary as permission to copy a parameter between models.
 --mask URL_OR_PATH     Edit mask
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
---dry-run              Validate without resolving credentials or using network
+--credential-source S  Prefer env|file|codex|claude for this run
+--dry-run              Validate and print a human confirmation card (no network)
+--json                 Print full JSON (includes confirmCard on dry-run)
 ```
+
+Media credentials resolve as `env > file` (canonical `~/.codex/kaiyun-tools.env`).
+Codex/Claude keys are fallback only when both are absent. Default dry-run
+stdout is a human-readable confirmation card that agents must paste into chat
+before paid POST.
 
 Resume is independent of the original submission fields:
 
@@ -86,9 +93,7 @@ node <skill-dir>/scripts/kaiyuncode-image.mjs \
 This path skips capability loading and POST request construction, resolves a
 credential for GET polling, and persists the result.
 
-API keys are deliberately not accepted as CLI arguments. Credential resolution
-order is `KAIYUN_API_KEY`, `~/.codex/kaiyun-tools.env` (or legacy `kaiyun-video.env`), active KaiyunCode Codex login, then KaiyunCode Claude
-settings. Conflicting sources stop execution.
+API keys are deliberately not accepted as CLI arguments.
 
 ## Results
 

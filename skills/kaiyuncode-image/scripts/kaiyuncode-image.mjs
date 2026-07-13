@@ -6,6 +6,7 @@ import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
+import { withConfirmCard } from "../../../shared/confirm-card.mjs";
 import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
 import { resolveCredential } from "../../../shared/credentials.mjs";
 import {
@@ -391,8 +392,17 @@ export async function runImageTask({
     if (typeof taskId !== "string" || taskId.trim() === "") {
       throw new Error("taskId must be a non-empty string");
     }
-    if (dryRun) return { dryRun: true, resume: true, taskId };
-    const credential = await deps.resolveCredential();
+    if (dryRun) {
+      return {
+        dryRun: true,
+        resume: true,
+        taskId,
+        ...(output !== undefined ? { output } : {}),
+      };
+    }
+    const credential = await deps.resolveCredential({
+      preferSource: deps.preferSource,
+    });
     const completed = await deps.pollTask({
       taskId,
       kind: "image",
@@ -421,10 +431,13 @@ export async function runImageTask({
       dryRun: true,
       capabilityKey,
       model,
+      ...(output !== undefined ? { output } : {}),
       request: request.summary,
     };
   }
-  const credential = await deps.resolveCredential();
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
   const resolvedTaskId = await deps.submitTask({ request, apiKey: credential.apiKey });
   const completed = await deps.pollTask({
     taskId: resolvedTaskId,
@@ -469,7 +482,9 @@ export function parseCliArguments(argv) {
     taskId: undefined,
     output: undefined,
     jobsFile: undefined,
+    credentialSource: undefined,
     dryRun: false,
+    json: false,
     help: false,
   };
   const scalarOptions = new Map([
@@ -480,6 +495,7 @@ export function parseCliArguments(argv) {
     ["--task-id", "taskId"],
     ["--output", "output"],
     ["--jobs-file", "jobsFile"],
+    ["--credential-source", "credentialSource"],
   ]);
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -489,6 +505,10 @@ export function parseCliArguments(argv) {
     }
     if (option === "--dry-run") {
       parsed.dryRun = true;
+      continue;
+    }
+    if (option === "--json") {
+      parsed.json = true;
       continue;
     }
     if (option === "--help" || option === "-h") {
@@ -640,10 +660,14 @@ Options:
   --task-id ID           Resume an asynchronous task without POST
   --output PATH          Result path
   --jobs-file PATH       JSON array of independent jobs; all run concurrently
-  --dry-run              Validate and print the redacted request without credentials
+  --credential-source S  Prefer env|file|codex|claude for this run
+  --dry-run              Validate and print a human confirmation card (no POST)
+  --json                 Print full JSON (always includes confirmCard on dry-run)
   --help                 Show this help
 
-Pass API keys via KAIYUN_API_KEY environment variable only (never argv).
+Credentials: env KAIYUN_API_KEY > ~/.codex/kaiyun-tools.env (canonical).
+Codex/Claude keys are fallback only when env and file are absent.
+Never pass API keys via argv.
 `;
 
 export async function loadJobsFile(path, { readFile: readFileImpl = readFile } = {}) {
@@ -711,7 +735,11 @@ export async function prepareJobSpec(spec, options = {}) {
 
 export async function executeCli(argv, dependencies = {}) {
   const parsed = parseCliArguments(argv);
-  if (parsed.help) return { help: CLI_USAGE };
+  if (parsed.help) return { help: CLI_USAGE, json: parsed.json };
+  const preferSource = parsed.credentialSource;
+  if (preferSource !== undefined) {
+    dependencies = { ...dependencies, preferSource };
+  }
   if (parsed.jobsFile) {
     const specs = await loadJobsFile(parsed.jobsFile, dependencies);
     const jobs = await Promise.all(
@@ -720,21 +748,39 @@ export async function executeCli(argv, dependencies = {}) {
       ),
     );
     const results = await runConcurrentImageTasks(jobs, dependencies);
-    return { concurrent: true, count: results.length, results };
+    const payload = withConfirmCard(
+      { concurrent: true, count: results.length, results },
+      { kind: "image" },
+    );
+    return { ...payload, json: parsed.json };
   }
   const input = await prepareCliInput(parsed, dependencies);
-  return runImageTask({ ...input, dependencies });
+  const result = await runImageTask({ ...input, dependencies });
+  const payload = withConfirmCard(result, { kind: "image" });
+  return { ...payload, json: parsed.json };
 }
 
 function isMainModule() {
   return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 }
 
+function writeCliResult(result) {
+  if (result.help) {
+    process.stdout.write(result.help);
+    return;
+  }
+  const { json, ...payload } = result;
+  if (payload.dryRun && payload.confirmCard && !json) {
+    process.stdout.write(`${payload.confirmCard}\n`);
+    return;
+  }
+  process.stdout.write(`${JSON.stringify(redactSensitive(payload), null, 2)}\n`);
+}
+
 if (isMainModule()) {
   try {
     const result = await executeCli(process.argv.slice(2));
-    if (result.help) process.stdout.write(result.help);
-    else process.stdout.write(`${JSON.stringify(redactSensitive(result), null, 2)}\n`);
+    writeCliResult(result);
   } catch (error) {
     process.stderr.write(`${String(redactSensitive(error?.message ?? error))}\n`);
     process.exitCode = 1;

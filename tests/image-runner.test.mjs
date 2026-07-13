@@ -746,6 +746,7 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
       "--model", "gpt-image-2",
       "--prompt", "CLI dry run",
       "--dry-run",
+      "--json",
     ],
     { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
   );
@@ -753,7 +754,25 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
   const output = JSON.parse(result.stdout);
   assert.equal(output.dryRun, true);
   assert.equal(output.request.path, "/v1/images/async/generations");
+  assert.match(output.confirmCard, /KaiyunCode 图片 · 待确认/);
+  assert.match(output.confirmCard, /gpt-image-2/);
   assert.ok(!`${result.stdout}${result.stderr}`.includes("dry-run-must-not-be-read"));
+});
+
+test("CLI dry-run default stdout is a human confirmation card", async () => {
+  const result = await runCli(
+    [
+      "--capability", "image_text_generation",
+      "--model", "gpt-image-2",
+      "--prompt", "CLI dry run card",
+      "--dry-run",
+    ],
+    { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /【KaiyunCode 图片 · 待确认】/);
+  assert.match(result.stdout, /确认提交/);
+  assert.throws(() => JSON.parse(result.stdout));
 });
 
 

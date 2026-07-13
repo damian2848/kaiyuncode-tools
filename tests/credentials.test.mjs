@@ -7,10 +7,10 @@ import test from "node:test";
 import {
   CredentialConflictError,
   CredentialNotFoundError,
+  getDefaultCredentialFilePath,
+  readApiKeyFile,
   resolveCredential,
   saveApiKeyFile,
-  readApiKeyFile,
-  getDefaultCredentialFilePath,
 } from "../shared/credentials.mjs";
 
 async function createFixture(t, { codexConfig, codexKey, claudeSettings } = {}) {
@@ -45,28 +45,55 @@ model_provider = "kaiyuncode"
 base_url = "https://kaiyuncode.com/v1"
 `;
 
-test("credential resolution applies env, Codex, then Claude priority when keys agree", async (t) => {
+test("env wins over file and ignores conflicting client keys", async (t) => {
   const homes = await createFixture(t, {
     codexConfig: kaiyunCodexConfig,
-    codexKey: "shared-key",
+    codexKey: "codex-secret",
     claudeSettings: {
       env: {
         ANTHROPIC_BASE_URL: "https://kaiyuncode.com",
-        ANTHROPIC_AUTH_TOKEN: "shared-key",
+        ANTHROPIC_AUTH_TOKEN: "claude-secret",
       },
     },
   });
+  const path = join(homes.codexHome, "kaiyun-tools.env");
+  await saveApiKeyFile("file-secret", { path });
 
   assert.deepEqual(
     await resolveCredential({
       ...homes,
-      env: { KAIYUN_API_KEY: "shared-key" },
+      env: { KAIYUN_API_KEY: "env-secret" },
+      credentialFile: path,
     }),
-    { apiKey: "shared-key", source: "env" },
+    { apiKey: "env-secret", source: "env" },
   );
 });
 
-test("credential resolution falls back from env to owned Codex then Claude", async (t) => {
+test("file is canonical when env is absent even if clients differ", async (t) => {
+  const homes = await createFixture(t, {
+    codexConfig: kaiyunCodexConfig,
+    codexKey: "codex-secret",
+    claudeSettings: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://kaiyuncode.com",
+        ANTHROPIC_AUTH_TOKEN: "claude-secret",
+      },
+    },
+  });
+  const path = join(homes.codexHome, "kaiyun-tools.env");
+  await saveApiKeyFile("file-secret", { path });
+
+  assert.deepEqual(
+    await resolveCredential({
+      ...homes,
+      env: {},
+      credentialFile: path,
+    }),
+    { apiKey: "file-secret", source: "file", path },
+  );
+});
+
+test("client fallback uses codex then claude when media sources are empty", async (t) => {
   const codexAndClaude = await createFixture(t, {
     codexConfig: kaiyunCodexConfig,
     codexKey: "shared-fallback-key",
@@ -94,6 +121,74 @@ test("credential resolution falls back from env to owned Codex then Claude", asy
     apiKey: "claude-only-key",
     source: "claude",
   });
+});
+
+test("differing client keys conflict only when media sources are empty", async (t) => {
+  const homes = await createFixture(t, {
+    codexConfig: kaiyunCodexConfig,
+    codexKey: "key-a-secret",
+    claudeSettings: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://kaiyuncode.com/",
+        ANTHROPIC_AUTH_TOKEN: "key-b-secret",
+      },
+    },
+  });
+
+  await assert.rejects(
+    resolveCredential({ ...homes, env: {} }),
+    (error) => {
+      assert.ok(error instanceof CredentialConflictError);
+      assert.deepEqual(error.sources, ["codex", "claude"]);
+      assert.ok(!error.message.includes("key-a-secret"));
+      assert.ok(!error.message.includes("key-b-secret"));
+      assert.match(error.message, /save-api-key|canonical/i);
+      return true;
+    },
+  );
+});
+
+test("preferSource selects an explicit source", async (t) => {
+  const homes = await createFixture(t, {
+    codexConfig: kaiyunCodexConfig,
+    codexKey: "codex-secret",
+    claudeSettings: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://kaiyuncode.com",
+        ANTHROPIC_AUTH_TOKEN: "claude-secret",
+      },
+    },
+  });
+  const path = join(homes.codexHome, "kaiyun-tools.env");
+  await saveApiKeyFile("file-secret", { path });
+
+  assert.deepEqual(
+    await resolveCredential({
+      ...homes,
+      env: { KAIYUN_API_KEY: "env-secret" },
+      credentialFile: path,
+      preferSource: "file",
+    }),
+    { apiKey: "file-secret", source: "file", path },
+  );
+
+  assert.deepEqual(
+    await resolveCredential({
+      ...homes,
+      env: { KAIYUN_API_KEY: "env-secret" },
+      credentialFile: path,
+      preferSource: "claude",
+    }),
+    { apiKey: "claude-secret", source: "claude" },
+  );
+});
+
+test("preferSource missing source fails closed", async (t) => {
+  const homes = await createFixture(t, {});
+  await assert.rejects(
+    resolveCredential({ ...homes, env: {}, preferSource: "file" }),
+    { name: "CredentialNotFoundError" },
+  );
 });
 
 test("Codex auth is unowned when config is absent", async (t) => {
@@ -127,46 +222,6 @@ test("Codex auth requires the exact active KaiyunCode v1 base URL", async (t) =>
   await assert.rejects(resolveCredential({ ...homes, env: {} }), {
     name: "CredentialNotFoundError",
   });
-});
-
-test("environment conflicts with an owned active Codex credential", async (t) => {
-  const homes = await createFixture(t, {
-    codexConfig: kaiyunCodexConfig,
-    codexKey: "codex-secret",
-  });
-  await assert.rejects(
-    resolveCredential({ ...homes, env: { KAIYUN_API_KEY: "env-secret" } }),
-    (error) => {
-      assert.ok(error instanceof CredentialConflictError);
-      assert.deepEqual(error.sources, ["env", "codex"]);
-      assert.doesNotMatch(error.message, /codex-secret|env-secret/);
-      return true;
-    },
-  );
-});
-
-test("different configured keys fail closed without exposing either value", async (t) => {
-  const homes = await createFixture(t, {
-    codexConfig: kaiyunCodexConfig,
-    codexKey: "key-a-secret",
-    claudeSettings: {
-      env: {
-        ANTHROPIC_BASE_URL: "https://kaiyuncode.com/",
-        ANTHROPIC_AUTH_TOKEN: "key-b-secret",
-      },
-    },
-  });
-
-  await assert.rejects(
-    resolveCredential({ ...homes, env: {} }),
-    (error) => {
-      assert.ok(error instanceof CredentialConflictError);
-      assert.deepEqual(error.sources, ["codex", "claude"]);
-      assert.ok(!error.message.includes("key-a-secret"));
-      assert.ok(!error.message.includes("key-b-secret"));
-      return true;
-    },
-  );
 });
 
 test("Codex and Claude generic credentials are ignored without KaiyunCode base URLs", async (t) => {
@@ -207,7 +262,6 @@ test("lookalike and insecure base URLs are not treated as KaiyunCode", async (t)
   });
 });
 
-
 test("saveApiKeyFile writes a private media credential file without agent config", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "kaiyun-save-key-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -218,16 +272,6 @@ test("saveApiKeyFile writes a private media credential file without agent config
   assert.equal(await readApiKeyFile(path), "media-only-secret");
   const { mode } = await import("node:fs/promises").then((fs) => fs.stat(path));
   assert.equal(mode & 0o777, 0o600);
-});
-
-test("resolveCredential reads the media credential file after env", async (t) => {
-  const homes = await createFixture(t, {});
-  const path = join(homes.codexHome, "kaiyun-tools.env");
-  await saveApiKeyFile("file-secret", { path });
-  assert.deepEqual(
-    await resolveCredential({ ...homes, env: {}, credentialFile: path }),
-    { apiKey: "file-secret", source: "file" },
-  );
 });
 
 test("legacy kaiyun-video.env is still accepted", async (t) => {
@@ -241,10 +285,13 @@ test("legacy kaiyun-video.env is still accepted", async (t) => {
       credentialFile: join(homes.codexHome, "missing.env"),
       legacyCredentialFile: legacy,
     }),
-    { apiKey: "legacy-secret", source: "file" },
+    { apiKey: "legacy-secret", source: "file", path: legacy },
   );
 });
 
 test("default credential path stays under Codex home", () => {
-  assert.match(getDefaultCredentialFilePath("/tmp/demo-codex"), /kaiyun-tools\.env$/);
+  assert.match(
+    getDefaultCredentialFilePath("/tmp/demo-codex"),
+    /kaiyun-tools\.env$/,
+  );
 });

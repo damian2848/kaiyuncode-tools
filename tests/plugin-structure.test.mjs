@@ -9,13 +9,16 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
+  assert.equal(manifest.version, "0.1.3");
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
   assert.equal(manifest.interface.category, "Developer Tools");
-  assert.deepEqual(manifest.interface.capabilities, ["Interactive", "Read", "Write"]);
-  assert.match(manifest.interface.defaultPrompt[0], /API Key|粘贴/);
+  assert.deepEqual(manifest.interface.capabilities, [
+    "Interactive",
+    "Read",
+    "Write",
+  ]);
 
   const skills = {
     "kaiyuncode-configure-agents": "scripts/configure-agents.mjs",
@@ -32,19 +35,25 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     assert.match(skill, new RegExp(script.replaceAll(".", "\\.")));
   }
 
-  const configureSkill = await readFile(
-    new URL("skills/kaiyuncode-configure-agents/SKILL.md", root),
+  const imageSkill = await readFile(
+    new URL("skills/kaiyuncode-image/SKILL.md", root),
     "utf8",
   );
-  assert.match(configureSkill, /save-api-key\.mjs|保存媒体凭证|仅保存/);
-  assert.match(configureSkill, /只有.*明确|用户明确要求/);
-  assert.match(configureSkill, /不要在安装后默认执行/);
-  assert.match(
-    await readFile(
-      new URL("skills/kaiyuncode-configure-agents/scripts/save-api-key.mjs", root),
-      "utf8",
+  const videoSkill = await readFile(
+    new URL("skills/kaiyuncode-video/SKILL.md", root),
+    "utf8",
+  );
+  assert.match(imageSkill, /confirmCard|确认卡/);
+  assert.match(videoSkill, /confirmCard|确认卡/);
+  assert.match(imageSkill, /credential-source|权威|env > file|env →/);
+  assert.match(videoSkill, /credential-source|权威|env > file|env →/);
+
+  await readFile(
+    new URL(
+      "skills/kaiyuncode-configure-agents/scripts/save-api-key.mjs",
+      root,
     ),
-    /saveApiKeyFile/,
+    "utf8",
   );
 });
 

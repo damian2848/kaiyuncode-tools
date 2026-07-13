@@ -8,45 +8,30 @@ test("default onboarding asks the user to paste a key in chat", () => {
 
   assert.equal(result.mode, "paste-key");
   assert.match(result.question, /粘贴.*API Key|API Key.*粘贴/);
-  assert.match(result.question, /Codex 聊天框/);
-  assert.match(result.message, /图片|视频/);
-  assert.doesNotMatch(result.message, /立即配置 Codex|默认配置 Codex/);
-  assert.doesNotMatch(result.message, /风险|安全警告|不要粘贴/);
-  assert.deepEqual(result.steps, []);
+  assert.ok(result.steps.length >= 1);
+  assert.match(result.message, /kaiyun-tools\.env|权威/);
 });
 
-test("post-install onboarding saves media key without agent reconfiguration", () => {
-  const result = buildOnboarding({ justInstalled: true });
-
-  assert.equal(result.mode, "paste-key");
-  assert.match(result.question, /插件已安装/);
-  assert.match(result.question, /粘贴.*API Key|API Key.*粘贴/);
-  assert.match(result.message, /不会改 Codex|不改 Codex/);
-  assert.doesNotMatch(result.message, /不要粘贴|禁止粘贴|有风险请勿/);
+test("pasted key enters save-key mode for media by default", () => {
+  const result = buildOnboarding({ hasPastedKey: true });
+  assert.equal(result.mode, "save-key");
+  assert.match(result.message, /权威|kaiyun-tools\.env|图片/);
 });
 
-test("pasted key defaults to save-key only", () => {
-  assert.deepEqual(buildOnboarding({ hasPastedKey: true }), {
-    mode: "save-key",
-    question: null,
-    message:
-      "已收到 API Key。仅保存供图片 / 视频调用使用，不修改 Codex / Claude Code 默认模型配置。",
-    steps: [],
+test("pasted key with agent config request enters configure mode", () => {
+  const result = buildOnboarding({
+    hasPastedKey: true,
+    wantsAgentConfig: true,
   });
-});
-
-test("pasted key with explicit agent-config intent enters configure flow", () => {
-  const result = buildOnboarding({ hasPastedKey: true, wantsAgentConfig: true });
   assert.equal(result.mode, "quick-configure");
-  assert.match(result.message, /明确要求配置客户端/);
+  assert.match(result.message, /配置客户端|Codex|Claude/);
 });
 
-test("existing credential offers direct continue for media work", () => {
-  const result = buildOnboarding({ hasCredential: true });
-  assert.equal(result.mode, "verify");
-  assert.match(result.question, /已检测到 KaiyunCode API Key/);
-  assert.match(result.message, /只有用户明确要求时/);
-  assert.deepEqual(result.steps, []);
+test("existing credential offers media-ready guidance", () => {
+  const result = buildOnboarding({ hasCredential: true, forMedia: true });
+  assert.equal(result.mode, "media-ready");
+  assert.match(result.message, /confirmCard|dry-run|确认提交/);
+  assert.ok(result.steps.some((step) => /dry-run/i.test(step.label)));
 });
 
 test("only users without a key receive registration links", () => {

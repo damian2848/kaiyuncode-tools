@@ -7,6 +7,10 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "n
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
+import {
+  getDefaultCredentialFilePath,
+  saveApiKeyFile,
+} from "../../../shared/credentials.mjs";
 import { redactSensitive } from "../../../shared/redaction.mjs";
 import { mergeClaudeSettings, mergeCodexConfig } from "../../../shared/toml-edit.mjs";
 
@@ -344,7 +348,13 @@ export async function configureAgents(options = {}) {
     haikuModel: claudeHaikuModel,
   });
 
+  const mediaCredentialPath =
+    options.mediaCredentialPath ?? getDefaultCredentialFilePath(codexHome);
   const preview = {
+    mediaCredential: {
+      path: mediaCredentialPath,
+      note: "Canonical image/video key file (same API Key)",
+    },
     codex: { provider: "kaiyuncode", model: codexModel, baseUrl: "https://kaiyuncode.com/v1" },
     claude: {
       model: claudeModel,
@@ -364,6 +374,7 @@ export async function configureAgents(options = {}) {
     backups = await createBackups(fsImpl, snapshots, now());
     await atomicWrite(fsImpl, codexConfig, nextCodex, MODE_PRIVATE);
     await atomicWrite(fsImpl, claudeSettings, `${JSON.stringify(nextClaude, null, 2)}\n`, MODE_PRIVATE);
+    await saveApiKeyFile(apiKey, { path: mediaCredentialPath });
 
     const processEnv = sanitizedProcessEnvironment(options.environment ?? process.env, apiKey, codexHome);
     const login = await spawnImpl("codex", ["login", "--with-api-key"], {
