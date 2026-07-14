@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   executeCli,
   formatCliResult,
+  listVideoModels,
   parseCliArguments,
   persistVideoResult,
   prepareCliInput,
@@ -690,6 +691,51 @@ test("CLI rejects api-key argv without echoing its value", () => {
       return true;
     },
   );
+});
+
+test("CLI lists current compatible video models and live prices without POST", async () => {
+  const deps = createProductionDeps();
+  const result = await executeCli(
+    [
+      "--list-models",
+      "--capability",
+      "video_capability_video_text_generation",
+      "--json",
+    ],
+    deps,
+  );
+  const output = JSON.parse(formatCliResult(result));
+
+  assert.equal(output.catalog, true);
+  assert.equal(output.kind, "video");
+  assert.equal(output.capabilities.length, 1);
+  assert.ok(
+    output.capabilities[0].models.some(({ model }) => model === "omni_flash"),
+  );
+  assert.equal(deps.calls.credential, 1);
+  assert.equal(deps.calls.catalog, 1);
+  assert.equal(deps.calls.submit, 0);
+  assert.equal(deps.calls.poll, 0);
+});
+
+test("video model discovery rejects task arguments before credentials", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    executeCli(["--list-models", "--prompt", "test"], deps),
+    /only accepts --capability.*--credential-source.*--json/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
+});
+
+test("listVideoModels rejects unknown capability before runtime lookup", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    listVideoModels({ capabilityKey: "missing", dependencies: deps }),
+    /Video capability missing is not available/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
 });
 
 test("CLI prepares local image/audio/video files with basename-only metadata", async () => {

@@ -88,6 +88,7 @@ Do not treat this summary as permission to copy a parameter between models.
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
 --credential-source S  Prefer env|file|codex|claude for this run
+--list-models          List current compatible models and live prices (GET only)
 --dry-run              Validate, perform two read-only GETs, and print a budget card
 --json                 Print full JSON (includes confirmCard on dry-run)
 ```
@@ -99,6 +100,8 @@ cost, and budget ceiling. Agents must paste it into chat before paid POST. If
 the budget ceiling is unknown, confirm pricing before submission. Unit prices
 are sourced only from `https://kaiyuncode.com/api/pricing`. Dry-run sends no
 paid POST. A jobs-file batch shares one runtime catalog request round.
+Model discovery can be filtered before planning with
+`--list-models --capability KEY`; it never submits a paid POST.
 
 Resume is independent of the original submission fields:
 

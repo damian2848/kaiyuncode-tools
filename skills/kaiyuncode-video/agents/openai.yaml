@@ -1,4 +1,4 @@
 interface:
-  display_name: "KaiyunCode 视频"
-  short_description: "调用 KaiyunCode 生产教程支持的异步视频模型生成或编辑视频"
-  default_prompt: "使用 KaiyunCode 生成或编辑视频"
+  display_name: "KaiyunCode 视频创作"
+  short_description: "实时选模型和价格，完成提示词、预算确认、视频生成编辑与迭代"
+  default_prompt: "使用 $kaiyuncode-video 帮我生成或编辑视频，并先实时选模型和确认预算。"

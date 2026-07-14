@@ -1,16 +1,16 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.1.5",
-  "description": "Configure agent clients and run KaiyunCode image and video workflows.",
+  "version": "0.2.0",
+  "description": "全流程引导用户使用 KaiyunCode 完成图片和视频创作。",
   "author": {
     "name": "KaiyunCode"
   },
   "homepage": "https://kaiyuncode.com/docs",
   "skills": "./skills/",
   "interface": {
-    "displayName": "KaiyunCode Tools",
-    "shortDescription": "实时校验模型与价格；提交前展示预算确认卡。",
-    "longDescription": "安装后在聊天框粘贴 API Key，保存为图片/视频权威密钥。默认不改 Codex / Claude Code。媒体任务凭据优先 env > file。每次新任务从 /v1/models 校验可用模型、从 /api/pricing 获取实时单价；付费生成前 dry-run 输出预计费用和预算上限的可读确认卡。",
+    "displayName": "KaiyunCode 创作工具",
+    "shortDescription": "从创意梳理、实时选型和预算确认一路引导到成品交付。",
+    "longDescription": "从一个想法开始，引导用户完成创意简报、密钥准备、实时模型与价格选择、提示词和素材整理、预算确认、异步生成、成品交付及迭代。默认不改 Codex / Claude Code，任何付费提交都必须先展示 dry-run 预算确认卡并获得明确授权。",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [
@@ -19,9 +19,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "插件已安装，请把 KaiyunCode API Key 粘贴到聊天框保存",
-      "使用 KaiyunCode 生成或编辑图片",
-      "使用 KaiyunCode 生成或编辑视频"
+      "带我从一个想法开始完成 KaiyunCode 图片或视频创作",
+      "查看 KaiyunCode 当前可用的图片和视频模型与价格",
+      "使用 KaiyunCode 编辑我的图片或视频并先确认预算"
     ]
   }
 }

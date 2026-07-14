@@ -1,6 +1,6 @@
 ---
 name: kaiyuncode-video
-description: Use when generating, extending, or recreating video through a KaiyunCode asynchronous video model documented by the production tutorial, including dry-run request validation and concurrent multi-job generation.
+description: "使用 KaiyunCode 异步视频模型完成文生视频、图生视频、首尾帧、续写、参考、多模态或视频复刻，并完成实时模型与价格发现、提示词和素材准备、预算确认、异步提交、结果保存及迭代。用户已经明确要创作视频时使用；跨图片/视频或需要从模糊想法开始全流程引导时优先使用 kaiyuncode-create。"
 ---
 
 # KaiyunCode Video
@@ -8,6 +8,8 @@ description: Use when generating, extending, or recreating video through a Kaiyu
 KaiyunCode video generation is asynchronous only. Use the bundled runner for
 adapter selection, validation, submission, polling, and atomic result storage.
 Never assemble a request from a model name.
+
+跨图片 / 视频、第一次使用或尚未明确交付物时，先转 `kaiyuncode-create` 完成创意简报。本 Skill 负责已确定视频方向后的具体执行。
 
 ## First-use guidance（必须）
 
@@ -42,13 +44,23 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs ... --credential-source file
 
 ## Workflow
 
-1. Identify one of the eight capabilities in [the production adapter reference](references/api.md).
-2. Select an exact adapter model for that capability; runtime availability is authoritative from `GET /v1/models`.
-3. Collect only missing required fields.
-4. **先 `--dry-run`**。它会用已保存 Key 只读请求 `/v1/models` 与 `/api/pricing`，CLI 默认打印人类可读 **confirmCard**（不是原始 JSON），不会发付费 POST。
-5. **把 confirmCard 全文贴进聊天**，包含：任务数、capability、model、时长/分辨率/画幅、参考图、输出路径、prompt 摘要、`/api/pricing` 单价来源、预计费用、预算上限、凭据规则。
-6. 确认预算上限已明确，且用户明确回复「确认提交」后，去掉 `--dry-run` 再 POST。
-7. 报告 task IDs、状态、脱敏 URL、绝对路径。
+1. 从用户目标判断文生、图生、首尾帧、续写、参考、多模态或复刻；先确认用途、画幅、时长和已有素材，不要求用户提供 capability 名称。
+2. 映射到 [production adapter reference](references/api.md) 中的 capability，然后运行 `--list-models --capability KEY` 获取当前模型与实时价格。
+3. 只从返回结果中给出最多 3 个候选，优先推荐 1 个；说明单价、适用理由和所需素材。没有依据时不要编造质量或速度差异。
+4. 整理最终提示词、素材、关键参数和输出路径，只收集选定适配器缺少的必填字段。
+5. **先 `--dry-run`**。它会再次校验 `/v1/models` 与 `/api/pricing`，CLI 默认打印人类可读 **confirmCard**，不会发付费 POST。
+6. **把 confirmCard 全文贴进聊天**，包含任务、模型、时长/分辨率/画幅、参考素材、输出、提示词摘要、预计费用和预算上限。确认卡展示后必须停止当前轮。
+7. 预算明确且用户回复「确认提交」后，使用完全相同的参数去掉 `--dry-run` 再 POST。
+8. 报告 task IDs、状态、脱敏 URL、绝对路径并展示视频；根据原目标给出不超过 3 个具体迭代方向。任何修改都必须重新 dry-run 和确认。
+
+### 实时模型与价格
+
+```bash
+node <skill-dir>/scripts/kaiyuncode-video.mjs \
+  --list-models --capability video_capability_video_text_generation
+```
+
+用户只问模型或费用时，到这里即可。不要强迫进入生成流程。
 
 ### 单任务
 

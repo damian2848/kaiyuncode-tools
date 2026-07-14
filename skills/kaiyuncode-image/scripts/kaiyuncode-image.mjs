@@ -8,6 +8,10 @@ import { pathToFileURL } from "node:url";
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
 import { withConfirmCard } from "../../../shared/confirm-card.mjs";
 import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
+import {
+  buildCreativeCatalog,
+  formatCreativeCatalog,
+} from "../../../shared/creative-catalog.mjs";
 import { resolveCredential } from "../../../shared/credentials.mjs";
 import {
   downloadResult,
@@ -383,6 +387,33 @@ const DEFAULT_DEPENDENCIES = {
   downloadResult,
 };
 
+export async function listImageModels({
+  capabilityKey,
+  dependencies = {},
+} = {}) {
+  const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+  const snapshot = await deps.loadCapabilities();
+  const capabilities = snapshot.imageCapabilities;
+  if (
+    capabilityKey &&
+    !capabilities.some(({ key }) => key === capabilityKey)
+  ) {
+    throw new Error(`Image capability ${capabilityKey} is not available`);
+  }
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
+  const runtimeCatalog = await deps.loadRuntimeCatalog({
+    apiKey: credential.apiKey,
+  });
+  return buildCreativeCatalog({
+    kind: "image",
+    capabilities,
+    runtimeCatalog,
+    capabilityKey,
+  });
+}
+
 export async function runImageTask({
   capabilityKey,
   model,
@@ -507,6 +538,7 @@ export function parseCliArguments(argv) {
     output: undefined,
     jobsFile: undefined,
     credentialSource: undefined,
+    listModels: false,
     dryRun: false,
     json: false,
     help: false,
@@ -529,6 +561,10 @@ export function parseCliArguments(argv) {
     }
     if (option === "--dry-run") {
       parsed.dryRun = true;
+      continue;
+    }
+    if (option === "--list-models") {
+      parsed.listModels = true;
       continue;
     }
     if (option === "--json") {
@@ -675,6 +711,7 @@ export async function prepareCliInput(parsed, { readFile: readFileImpl = readFil
 
 const CLI_USAGE = `Usage: kaiyuncode-image --capability KEY --model MODEL [options]
    or: kaiyuncode-image --jobs-file jobs.json [--dry-run]
+   or: kaiyuncode-image --list-models [--capability KEY] [--json]
 
 Options:
   --prompt TEXT          Image prompt
@@ -685,6 +722,7 @@ Options:
   --output PATH          Result path
   --jobs-file PATH       JSON array of independent jobs; all run concurrently
   --credential-source S  Prefer env|file|codex|claude for this run
+  --list-models          List current compatible models and live prices (GET only)
   --dry-run              Validate and print a human confirmation card (no POST)
   --json                 Print full JSON (always includes confirmCard on dry-run)
   --help                 Show this help
@@ -693,6 +731,24 @@ Credentials: env KAIYUN_API_KEY > ~/.codex/kaiyun-tools.env (canonical).
 Codex/Claude keys are fallback only when env and file are absent.
 Never pass API keys via argv.
 `;
+
+function validateListModelsArguments(parsed) {
+  const hasTaskArguments =
+    parsed.model !== undefined ||
+    parsed.prompt !== undefined ||
+    parsed.mask !== undefined ||
+    parsed.taskId !== undefined ||
+    parsed.output !== undefined ||
+    parsed.jobsFile !== undefined ||
+    parsed.dryRun ||
+    parsed.params.length > 0 ||
+    parsed.images.length > 0;
+  if (hasTaskArguments) {
+    throw new Error(
+      "--list-models only accepts --capability, --credential-source, and --json",
+    );
+  }
+}
 
 export async function loadJobsFile(path, { readFile: readFileImpl = readFile } = {}) {
   let raw;
@@ -764,6 +820,14 @@ export async function executeCli(argv, dependencies = {}) {
   if (preferSource !== undefined) {
     dependencies = { ...dependencies, preferSource };
   }
+  if (parsed.listModels) {
+    validateListModelsArguments(parsed);
+    const catalog = await listImageModels({
+      capabilityKey: parsed.capabilityKey,
+      dependencies,
+    });
+    return { ...catalog, json: parsed.json };
+  }
   if (parsed.jobsFile) {
     const specs = await loadJobsFile(parsed.jobsFile, dependencies);
     const jobs = await Promise.all(
@@ -795,6 +859,9 @@ export function formatCliResult(result) {
   const { json, ...payload } = result;
   if (payload.dryRun && payload.confirmCard && !json) {
     return `${payload.confirmCard}\n`;
+  }
+  if (payload.catalog && !json) {
+    return `${formatCreativeCatalog(payload)}\n`;
   }
   return `${JSON.stringify(redactSensitive(payload), null, 2)}\n`;
 }
