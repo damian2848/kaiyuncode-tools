@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import test from "node:test";
 
+import { withConfirmCard } from "../shared/confirm-card.mjs";
+
 import {
   executeCli,
   formatCliResult,
@@ -743,9 +745,9 @@ test("CLI prepares local image/audio/video files with basename-only metadata", a
   const input = await prepareCliInput(
     parseCliArguments([
       "--capability",
-      "video_capability_video_image_to_video",
+      "video_capability_video_multimodal_to_video",
       "--model",
-      "happyhorse-1.0-i2v",
+      "wan2.7-r2v",
       "--prompt",
       "animate",
       "--image",
@@ -782,6 +784,33 @@ test("CLI prepares local image/audio/video files with basename-only metadata", a
       "/private",
     ),
   );
+  assert.deepEqual(
+    input.values["input.media[]"].map(({ type }) => type),
+    ["reference_image", "reference_video"],
+  );
+  assert.match(
+    input.values["input.media[]"][1].reference_voice,
+    /^data:audio\/mpeg;base64,/,
+  );
+
+  const result = await runVideoTask({
+    ...input,
+    dependencies: createProductionDeps(),
+  });
+  assert.deepEqual(
+    result.request.localResources.map(({ type, name }) => ({ type, name })),
+    [
+      { type: "image", name: "first.png" },
+      { type: "audio", name: "voice.mp3" },
+      { type: "video", name: "clip.mp4" },
+    ],
+  );
+  assert.ok(!JSON.stringify(result.request).includes("/private"));
+  assert.ok(!JSON.stringify(result.request).includes("data:video"));
+  const card = withConfirmCard(result, { kind: "video" }).confirmCard;
+  assert.match(card, /参考图 1 张（first\.png/);
+  assert.match(card, /参考视频 1 个（clip\.mp4/);
+  assert.match(card, /参考音频 1 个（voice\.mp3/);
 });
 
 test("CLI task-id-only resume needs no capability, model, prompt, or file reads", async () => {

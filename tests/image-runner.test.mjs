@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import test from "node:test";
 
+import { withConfirmCard } from "../shared/confirm-card.mjs";
+
 import {
   executeCli,
   formatCliResult,
@@ -754,6 +756,34 @@ test("CLI prepares repeated local image and mask files with basename-only metada
     ],
   );
   assert.ok(!JSON.stringify(input.files.map(({ filename }) => filename)).includes("/private"));
+});
+
+test("CLI accepts local files for gpt-image-2 multi-reference and names them in the confirmation card", async () => {
+  const input = await prepareCliInput(
+    parseCliArguments([
+      "--capability", "image_multi_reference",
+      "--model", "gpt-image-2",
+      "--prompt", "compose local references",
+      "--image", "/private/DSC01013.JPG",
+      "--image", "/private/DSC01014.JPG",
+      "--dry-run",
+    ]),
+    { readFile: async (path) => Buffer.from(path) },
+  );
+
+  assert.equal(input.values["image_urls[]"].length, 2);
+  assert.ok(input.values["image_urls[]"].every((value) => value.startsWith("data:image/jpeg;base64,")));
+  assert.ok(input.files.every(({ inline, kind }) => inline && kind === "image"));
+
+  const result = await runImageTask({ ...input, dependencies: createProductionDeps() });
+  assert.deepEqual(result.request.localResources.map(({ name }) => name), [
+    "DSC01013.JPG",
+    "DSC01014.JPG",
+  ]);
+  assert.ok(!JSON.stringify(result.request).includes("/private"));
+  assert.ok(!JSON.stringify(result.request).includes("data:image"));
+  const card = withConfirmCard(result, { kind: "image" }).confirmCard;
+  assert.match(card, /参考图 2 张（DSC01013\.JPG.*DSC01014\.JPG/);
 });
 
 test("CLI preserves repeated remote Wan edit images in order", async () => {

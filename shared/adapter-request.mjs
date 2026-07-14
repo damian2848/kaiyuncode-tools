@@ -181,6 +181,11 @@ function normalizeFiles(files) {
         typeof file.filename === "string" && file.filename.length > 0
           ? file.filename.split(/[\\/]/u).at(-1)
           : "upload.bin",
+      inline: file.inline === true,
+      kind:
+        typeof file.kind === "string" && file.kind.length > 0
+          ? file.kind
+          : undefined,
     };
   });
 }
@@ -447,10 +452,12 @@ function buildMultipartRequest(adapter, variant, resolved, files) {
       form.append("model", adapter.model);
       continue;
     }
-    if (
-      fileFields.has(field.name) ||
-      (typeof field.value === "string" && field.value.startsWith("@"))
-    ) {
+    if (fileFields.has(field.name)) {
+      const parameter = candidateForField(field.name, resolved);
+      if (parameter?.present) appendedParameters.add(parameter.name);
+      continue;
+    }
+    if (typeof field.value === "string" && field.value.startsWith("@")) {
       continue;
     }
     const parameter = candidateForField(field.name, resolved);
@@ -462,6 +469,17 @@ function buildMultipartRequest(adapter, variant, resolved, files) {
         field.value;
     if (parameter?.present) appendedParameters.add(parameter.name);
     if (value !== undefined) appendFormValue(form, field.name, value);
+  }
+  for (const parameter of resolved) {
+    if (
+      !parameter.provided ||
+      !parameter.present ||
+      appendedParameters.has(parameter.name) ||
+      parameter.name === "model"
+    ) {
+      continue;
+    }
+    appendFormValue(form, parameter.name.replace(/\[\]$/u, ""), parameter.value);
   }
   for (const file of files) {
     form.append(file.field, file.data, file.filename);
@@ -479,23 +497,33 @@ export function buildAdapterRequest(adapter, values = {}, files = []) {
     throw new Error("Invalid adapter");
   }
   const normalizedFiles = normalizeFiles(files);
+  const inlineFiles = normalizedFiles.filter(({ inline }) => inline);
+  const uploadFiles = normalizedFiles.filter(({ inline }) => !inline);
   const resolved = resolveParameters(adapter, values);
-  const variant = selectVariant(adapter, resolved, normalizedFiles);
+  const variant = selectVariant(adapter, resolved, uploadFiles);
   const request =
     variant.kind === "json"
       ? buildJsonRequest(adapter, variant, resolved)
-      : buildMultipartRequest(adapter, variant, resolved, normalizedFiles);
+      : buildMultipartRequest(adapter, variant, resolved, uploadFiles);
   const summaryBody =
     request.body instanceof FormData
       ? request.body
       : JSON.parse(request.body);
+  const summary = redactSensitive({
+    method: request.method,
+    path: request.path,
+    headers: request.headers,
+    body: summaryBody,
+  });
+  if (inlineFiles.length > 0) {
+    summary.localResources = inlineFiles.map(({ filename, data, kind }) => ({
+      type: kind ?? "file",
+      name: filename,
+      size: data.size,
+    }));
+  }
   return {
     ...request,
-    summary: redactSensitive({
-      method: request.method,
-      path: request.path,
-      headers: request.headers,
-      body: summaryBody,
-    }),
+    summary,
   };
 }

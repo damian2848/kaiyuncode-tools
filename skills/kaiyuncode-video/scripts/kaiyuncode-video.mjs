@@ -367,6 +367,7 @@ function validateFiles(adapter, files) {
   }
   const provided = new Map();
   for (const file of files) {
+    if (file?.inline === true) continue;
     const count = (provided.get(file?.field) ?? 0) + 1;
     provided.set(file?.field, count);
     const limit = uploadLimits.get(file?.field) ?? 0;
@@ -731,10 +732,37 @@ async function localFile(path, field, readFileImpl) {
   } catch {
     throw new Error(`Unable to read --${field} file ${basename(path)}`);
   }
+  const extension = basename(path).split(".").at(-1)?.toLowerCase();
+  const mimeTypes = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    avif: "image/avif",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    webm: "video/webm",
+    mpeg: "video/mpeg",
+    mpg: "video/mpeg",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    flac: "audio/flac",
+  };
+  const mimeType = mimeTypes[extension];
+  if (!mimeType || !mimeType.startsWith(`${field}/`)) {
+    throw new Error(`Unsupported local ${field} type: ${basename(path)}`);
+  }
+  const data = new Blob([bytes], { type: mimeType });
   return {
     field,
-    data: new Blob([bytes]),
+    data,
     filename: basename(path),
+    inline: true,
+    kind: field,
+    value: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
   };
 }
 
@@ -748,6 +776,16 @@ function chooseArrayField(names, candidates) {
 
 function applyRemoteImages(capabilityKey, names, values, images) {
   if (images.length === 0) return;
+  if (names.has("image_url") && names.has("extra_images[]")) {
+    addParam(values, "image_url", images[0]);
+    if (images.length > 1) addParam(values, "extra_images[]", images.slice(1));
+    return;
+  }
+  if (names.has("image_url") && names.has("images[]")) {
+    addParam(values, "image_url", images[0]);
+    if (images.length > 1) addParam(values, "images[]", images.slice(1));
+    return;
+  }
   if (names.has("image_url") && images.length === 1 && !names.has("images[]")) {
     addParam(values, "image_url", images[0]);
     return;
@@ -767,21 +805,27 @@ function applyRemoteImages(capabilityKey, names, values, images) {
     return;
   }
   if (names.has("input.media[]")) {
-    const type =
-      capabilityKey === "video_capability_video_reference_generation" ||
-      capabilityKey === "video_capability_video_multimodal_to_video"
-        ? "reference_image"
-        : "first_frame";
     addParam(
       values,
       "input.media[]",
-      images.map((url) => ({ type, url })),
+      images.map((url, index) => {
+        let type = "first_frame";
+        if (
+          capabilityKey === "video_capability_video_reference_generation" ||
+          capabilityKey === "video_capability_video_multimodal_to_video" ||
+          capabilityKey === "video_capability_video_recreate"
+        ) {
+          type = "reference_image";
+        } else if (capabilityKey === "video_capability_video_first_last_frame") {
+          type = index === 0 ? "first_frame" : "last_frame";
+        } else if (capabilityKey === "video_capability_video_continuation") {
+          type = "last_frame";
+        } else if (index > 0) {
+          type = "refer";
+        }
+        return { type, url };
+      }),
     );
-    return;
-  }
-  if (names.has("image_url") && images.length > 1 && names.has("extra_images[]")) {
-    addParam(values, "image_url", images[0]);
-    addParam(values, "extra_images[]", images.slice(1));
     return;
   }
   throw new Error(`${capabilityKey} does not document --image input`);
@@ -790,8 +834,28 @@ function applyRemoteImages(capabilityKey, names, values, images) {
 function applyRemoteAudios(names, values, audios) {
   if (audios.length === 0) return;
   const field = chooseArrayField(names, ["extra_audios[]", "audio_urls[]"]);
-  if (!field) throw new Error("Selected adapter does not document --audio input");
-  addParam(values, field, audios);
+  if (field) {
+    addParam(values, field, audios);
+    return;
+  }
+  if (names.has("input.media[]")) {
+    const media = Array.isArray(values["input.media[]"])
+      ? values["input.media[]"]
+      : [];
+    let audioIndex = 0;
+    for (const item of media) {
+      if (item?.type !== "reference_video" || item.reference_voice) continue;
+      item.reference_voice = audios[audioIndex];
+      audioIndex += 1;
+      if (audioIndex >= audios.length) break;
+    }
+    for (; audioIndex < audios.length; audioIndex += 1) {
+      media.push({ type: "reference_audio", url: audios[audioIndex] });
+    }
+    values["input.media[]"] = media;
+    return;
+  }
+  throw new Error("Selected adapter does not document --audio input");
 }
 
 function applyRemoteVideos(capabilityKey, names, values, videos) {
@@ -865,39 +929,41 @@ export async function prepareCliInput(
   if (parsed.prompt !== undefined) addParam(values, "prompt", parsed.prompt);
 
   const files = [];
-  const remoteImages = [];
-  const remoteAudios = [];
-  const remoteVideos = [];
+  const images = [];
+  const audios = [];
+  const videos = [];
 
   for (const image of parsed.images ?? []) {
-    if (mediaIsRemote(image)) remoteImages.push(image);
-    else files.push(await localFile(image, "image", readFileImpl));
+    if (mediaIsRemote(image)) images.push(image);
+    else {
+      const file = await localFile(image, "image", readFileImpl);
+      files.push(file);
+      images.push(file.value);
+    }
   }
   for (const audio of parsed.audios ?? []) {
-    if (mediaIsRemote(audio)) remoteAudios.push(audio);
-    else files.push(await localFile(audio, "audio", readFileImpl));
+    if (mediaIsRemote(audio)) audios.push(audio);
+    else {
+      const file = await localFile(audio, "audio", readFileImpl);
+      files.push(file);
+      audios.push(file.value);
+    }
   }
   for (const video of parsed.videos ?? []) {
-    if (mediaIsRemote(video)) remoteVideos.push(video);
-    else files.push(await localFile(video, "video", readFileImpl));
+    if (mediaIsRemote(video)) videos.push(video);
+    else {
+      const file = await localFile(video, "video", readFileImpl);
+      files.push(file);
+      videos.push(file.value);
+    }
   }
 
-  if (
-    remoteImages.length > 0 ||
-    remoteAudios.length > 0 ||
-    remoteVideos.length > 0 ||
-    files.some(({ field }) => field === "image")
-  ) {
+  if (images.length > 0 || audios.length > 0 || videos.length > 0) {
     const adapter = await loadAdapterForCli(parsed.capabilityKey, parsed.model);
     const names = parameterNames(adapter);
-    applyRemoteImages(parsed.capabilityKey, names, values, remoteImages);
-    applyRemoteAudios(names, values, remoteAudios);
-    applyRemoteVideos(parsed.capabilityKey, names, values, remoteVideos);
-    if (files.some(({ field }) => field === "image") && names.has("image")) {
-      if (!Object.hasOwn(values, "image")) {
-        values.image = parsed.images.find((item) => !mediaIsRemote(item));
-      }
-    }
+    applyRemoteImages(parsed.capabilityKey, names, values, images);
+    applyRemoteVideos(parsed.capabilityKey, names, values, videos);
+    applyRemoteAudios(names, values, audios);
   }
 
   return {

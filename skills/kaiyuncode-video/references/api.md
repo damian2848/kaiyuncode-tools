@@ -60,19 +60,19 @@ the selected adapter documents only the nested form.
 | Duration / seconds | Use only values or ranges listed by the selected adapter |
 | Aspect / ratio | Use only ratios listed by the selected adapter |
 | Resolution | Common values include `720P`/`1080P` or `720p` depending on adapter |
-| Audio arrays | At most 3 public MP3 URLs on documented profiles; cannot stand alone on video-pro |
-| Video arrays | At most 3 public URLs on documented multimodal profiles |
-| Reference images | Public HTTPS URLs; counts follow the selected adapter |
+| Audio arrays | 本机音频或 HTTPS URL；数量遵循选定 adapter，video-pro 不允许音频单独存在 |
+| Video arrays | 本机视频或 HTTPS URL；数量遵循选定的多模态 adapter |
+| Reference images | 本机图片或 HTTPS URL；数量遵循选定 adapter |
 
 The runner validates the actual parameter table attached to the exact adapter.
 Do not treat this summary as permission to copy a parameter between models.
 
 ## Files And URLs
 
-- JSON media fields reject local paths. Use a public HTTPS URL or media data URL.
-- Local inputs are read into `Blob` values and sent only through a multipart variant that documents the matching upload field.
-- `--image`, `--audio`, and `--video` are repeatable. The selected adapter controls field names and cardinality.
-- Nested `input.media[]` entries keep their documented `type` values such as `first_frame`, `last_frame`, `reference_image`, `reference_video`, `first_clip`, and `video`.
+- `--image`、`--audio` 和 `--video` 都接受本机文件路径；Runner 会读取文件并封装为媒体负载，KaiyunCode 负责转存为上游需要的公网资源。
+- 本机资源与远程资源可以混合使用；Runner 保留输入顺序以及首帧、尾帧、参考图、参考视频和参考音频语义。
+- 用户主动提供远程资源时必须使用无内嵌凭据的 HTTPS URL；也支持对应媒体类型的 data URL。
+- 直接调用底层 `values` 时不能只放一个本机路径字符串；应通过 CLI 参数或 jobs 的 `images`、`audios`、`videos` 字段交给 Runner 读取。
 - Dry-run summaries contain only safe file metadata such as a basename, never the file contents or full local directory.
 
 ## CLI
@@ -82,9 +82,9 @@ Do not treat this summary as permission to copy a parameter between models.
 --model MODEL          Required exact adapter model, checked via GET /v1/models
 --prompt TEXT          Video prompt
 --param KEY=VALUE      Repeat for adapter parameters (dotted keys allowed)
---image URL_OR_PATH    Repeat for image references or multipart files
---audio URL_OR_PATH    Repeat for audio references or multipart files
---video URL_OR_PATH    Repeat for video references or multipart files
+--image URL_OR_PATH    Repeat for local or remote image references
+--audio URL_OR_PATH    Repeat for local or remote audio references
+--video URL_OR_PATH    Repeat for local or remote video references
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
 --credential-source S  Prefer env|file|codex|claude for this run
