@@ -15,6 +15,11 @@ import {
   submitTask,
 } from "../../../shared/http-client.mjs";
 import { redactSensitive } from "../../../shared/redaction.mjs";
+import {
+  loadRuntimeCatalog,
+  memoizeRuntimeCatalogLoader,
+  runtimePriceForModel,
+} from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
 const CAPABILITIES_URL = new URL(
@@ -132,7 +137,7 @@ function validateRemoteMedia(parameter, value, files) {
     /^Array<\{/u.test(parameter.type ?? "") ||
     /media\[\]$/u.test(parameter.name);
   const scalarMediaName =
-    /(?:^|[.])(?:image|image_url|images\[\]|input_video|mask|reference_image_urls\[\]|extra_images\[\]|extra_videos\[\]|extra_audios\[\]|audio_urls\[\]|image_urls\[\])$/iu.test(
+    /(?:^|[.])(?:image|image_url|images\[\]|input_video|video_url|mask|reference_image_urls\[\]|extra_images\[\]|extra_videos\[\]|extra_audios\[\]|audio_urls\[\]|image_urls\[\])$/iu.test(
       parameter.name,
     );
   if (!documentsUrl && !objectMedia && !scalarMediaName) return;
@@ -455,6 +460,7 @@ export async function persistVideoResult({
 
 const DEFAULT_DEPENDENCIES = {
   loadCapabilities,
+  loadRuntimeCatalog,
   resolveCredential,
   submitTask,
   pollTask,
@@ -512,18 +518,24 @@ export async function runVideoTask({
   const resolvedValues = remappedValues(adapter, provisional);
   validateValues(adapter, resolvedValues, files);
   const request = buildAdapterRequest(adapter, resolvedValues, files);
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
+  const catalog = await deps.loadRuntimeCatalog({ apiKey: credential.apiKey });
+  const priceLabel = runtimePriceForModel(catalog, model, {
+    requirePrice: !dryRun,
+  });
   if (dryRun) {
     return {
       dryRun: true,
       capabilityKey,
       model,
+      ...(priceLabel ? { priceLabel } : {}),
+      ...(catalog.checkedAt ? { catalogCheckedAt: catalog.checkedAt } : {}),
       ...(output !== undefined ? { output } : {}),
       request: request.summary,
     };
   }
-  const credential = await deps.resolveCredential({
-    preferSource: deps.preferSource,
-  });
   const resolvedTaskId = await deps.submitTask({
     request,
     apiKey: credential.apiKey,
@@ -547,9 +559,21 @@ export async function runVideoTask({
  * Failures are isolated per job and do not cancel siblings.
  */
 export async function runConcurrentVideoTasks(jobs, dependencies = {}) {
-  return runConcurrentTasks(jobs, (job) =>
-    runVideoTask({ ...job, dependencies: job.dependencies ?? dependencies }),
-  );
+  const memoizedLoaders = new Map();
+  return runConcurrentTasks(jobs, (job) => {
+    const jobDependencies = job.dependencies ?? dependencies;
+    const loader = jobDependencies.loadRuntimeCatalog ?? loadRuntimeCatalog;
+    if (!memoizedLoaders.has(loader)) {
+      memoizedLoaders.set(loader, memoizeRuntimeCatalogLoader(loader));
+    }
+    return runVideoTask({
+      ...job,
+      dependencies: {
+        ...jobDependencies,
+        loadRuntimeCatalog: memoizedLoaders.get(loader),
+      },
+    });
+  });
 }
 
 function takeCliValue(argv, index, option) {
@@ -736,6 +760,10 @@ function applyRemoteAudios(names, values, audios) {
 
 function applyRemoteVideos(capabilityKey, names, values, videos) {
   if (videos.length === 0) return;
+  if (names.has("video_url") && videos.length === 1) {
+    addParam(values, "video_url", videos[0]);
+    return;
+  }
   if (names.has("input_video") && videos.length === 1) {
     addParam(values, "input_video", videos[0]);
     return;
@@ -967,17 +995,19 @@ function isMainModule() {
   );
 }
 
-function writeCliResult(result) {
+export function formatCliResult(result) {
   if (result.help) {
-    process.stdout.write(result.help);
-    return;
+    return result.help;
   }
   const { json, ...payload } = result;
   if (payload.dryRun && payload.confirmCard && !json) {
-    process.stdout.write(`${payload.confirmCard}\n`);
-    return;
+    return `${payload.confirmCard}\n`;
   }
-  process.stdout.write(`${JSON.stringify(redactSensitive(payload), null, 2)}\n`);
+  return `${JSON.stringify(redactSensitive(payload), null, 2)}\n`;
+}
+
+function writeCliResult(result) {
+  process.stdout.write(formatCliResult(result));
 }
 
 if (isMainModule()) {

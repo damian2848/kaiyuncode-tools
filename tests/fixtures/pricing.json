@@ -1,0 +1,13 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "model_name": "gpt-image-2",
+      "description": "GPT image model\n平台价：$0.0150/次"
+    },
+    {
+      "model_name": "happyhorse-1.0-t2v",
+      "description": "平台价：$0.0600/秒(720P)，$0.0900/秒(1080P)"
+    }
+  ]
+}

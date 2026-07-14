@@ -88,6 +88,7 @@ test("normalizer preserves parameters and parses JSON and multipart variants", a
   const generation = snapshot.imageCapabilities[0].adapters[0];
   assert.equal(generation.capabilityKey, "image_text_generation");
   assert.equal(generation.pollPath, "/v1/images/async/{task_id}");
+  assert.equal(generation.priceLabel, undefined);
   assert.deepEqual(generation.parameters[1], {
     name: "prompt",
     location: "body",
@@ -125,7 +126,19 @@ test("normalizer preserves parameters and parses JSON and multipart variants", a
 
   const video = snapshot.videoCapabilities[0].adapters[0];
   assert.equal(video.pollPath, "/v1/videos/{task_id}");
+  assert.equal(video.priceLabel, undefined);
   assert.deepEqual(video.requestVariants[0].template.metadata, { duration: 5 });
+});
+
+test("normalizer never copies prices into the request adapter snapshot", async () => {
+  const publicOptions = await fixture("public-model-options");
+  publicOptions.models[0].platformPriceLabel = "$9.9999/次";
+  const snapshot = normalizeProductionTutorial(
+    await fixture("tutorial-page"),
+    publicOptions,
+  );
+  assert.equal(snapshot.imageCapabilities[0].adapters[0].priceLabel, undefined);
+  assert.equal(snapshot.pricingSource, undefined);
 });
 
 test("normalizer rejects an unknown documented request structure", () => {
@@ -315,7 +328,7 @@ test("normalizer ignores response-only polling metadata steps", () => {
   );
 });
 
-test("loader refreshes both production sources and atomically caches the snapshot", async (t) => {
+test("loader refreshes both adapter sources and atomically caches the snapshot", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "kaiyun-capabilities-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const cachePath = join(root, "cache", "production-capabilities.json");
@@ -324,7 +337,11 @@ test("loader refreshes both production sources and atomically caches the snapsho
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(url);
-    return new Response(JSON.stringify(calls.length === 1 ? tutorial : options));
+    const payload =
+      url === "https://kaiyuncode.com/api/api-tutorial-page"
+        ? tutorial
+        : options;
+    return new Response(JSON.stringify(payload));
   };
 
   const snapshot = await loadProductionCapabilities({
@@ -390,8 +407,9 @@ test("loader returns fresh data when only atomic cache persistence fails", async
   const tutorial = await fixture("tutorial-page");
   const options = await fixture("public-model-options");
   let calls = 0;
+  const responses = [tutorial, options];
   const fetchImpl = async () =>
-    new Response(JSON.stringify(++calls === 1 ? tutorial : options));
+    new Response(JSON.stringify(responses[calls++]));
 
   const snapshot = await loadProductionCapabilities({
     fetchImpl,

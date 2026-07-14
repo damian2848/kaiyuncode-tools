@@ -38,10 +38,10 @@ KAIYUN_API_KEY='...' node <skill-dir>/../kaiyuncode-configure-agents/scripts/sav
 ## Workflow
 
 1. Identify one of the four capabilities in [the production adapter reference](references/api.md).
-2. Select an exact model listed for that capability. Never use `gpt-image-2-max`.
+2. Select an exact adapter model listed for that capability. Never use `gpt-image-2-max`; runtime availability is authoritative from `GET /v1/models`.
 3. Collect only missing required fields.
-4. **先 `--dry-run`**；CLI 默认输出 **confirmCard**。
-5. **把 confirmCard 全文贴进聊天**后再索取「确认提交」。
+4. **先 `--dry-run`**；它会用已保存 Key 只读请求 `/v1/models` 与 `/api/pricing`，默认输出实时单价、预计费用和预算上限的 **confirmCard**，不会发付费 POST。
+5. **把 confirmCard 全文贴进聊天**，确认预计费用和预算上限均已明确，再索取「确认提交」。
 6. 用户明确授权后去掉 `--dry-run` 提交；报告 task IDs、状态、脱敏 URL、绝对路径。
 
 ### 单任务
@@ -73,9 +73,11 @@ node <skill-dir>/scripts/kaiyuncode-image.mjs \
 
 ## Stop Conditions
 
-- Stop if validation fails or the model/profile is absent from the production snapshot.
+- Stop if validation fails, the adapter/profile is absent from the production snapshot, or the model is absent from runtime `GET /v1/models`.
+- Treat `/api/pricing` as the only price source. Never fall back to a snapshot price; a paid POST must stop when pricing is missing.
 - Never automatically retry a paid POST timeout / 429 / 5xx.
 - Do not run real paid requests just to test; use dry-run or mocks.
+- Do not submit while the budget ceiling is unknown.
 - Do not submit without confirmCard + explicit user authorization.
 
 Never place an API key in command-line arguments, logs, or chat output.

@@ -9,7 +9,7 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.1.3");
+  assert.equal(manifest.version, "0.1.5");
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
@@ -45,6 +45,8 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
   );
   assert.match(imageSkill, /confirmCard|确认卡/);
   assert.match(videoSkill, /confirmCard|确认卡/);
+  assert.match(imageSkill, /预算/);
+  assert.match(videoSkill, /预算/);
   assert.match(imageSkill, /credential-source|权威|env > file|env →/);
   assert.match(videoSkill, /credential-source|权威|env > file|env →/);
 

@@ -370,12 +370,17 @@ function normalizeCapability(item, publicModelKeys) {
     description: item.description ?? "",
     endpointPath: item.endpointPath,
     adapters: item.steps
-      .map((step) => normalizeAdapter(item, step, publicModelKeys))
+      .map((step) =>
+        normalizeAdapter(item, step, publicModelKeys),
+      )
       .filter(Boolean),
   };
 }
 
-export function normalizeProductionTutorial(tutorialPage, publicOptions) {
+export function normalizeProductionTutorial(
+  tutorialPage,
+  publicOptions,
+) {
   const items = tutorialPage?.config?.items;
   if (!Array.isArray(items)) {
     throw new Error(
@@ -394,12 +399,16 @@ export function normalizeProductionTutorial(tutorialPage, publicOptions) {
   }
 
   const publicModelKeys = new Set(
-    publicOptions.models.map((item) => item?.key).filter(Boolean),
+    publicOptions.models
+      .filter((item) => item && typeof item.key === "string" && item.key.length > 0)
+      .map((item) => item.key),
   );
   const normalizeItems = (category) =>
     items
       .filter((item) => item.category === category && item.mode === "api")
-      .map((item) => normalizeCapability(item, publicModelKeys));
+      .map((item) =>
+        normalizeCapability(item, publicModelKeys),
+      );
 
   return {
     schemaVersion: 1,

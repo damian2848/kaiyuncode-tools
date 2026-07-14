@@ -43,11 +43,11 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs ... --credential-source file
 ## Workflow
 
 1. Identify one of the eight capabilities in [the production adapter reference](references/api.md).
-2. Select an exact model for that capability.
+2. Select an exact adapter model for that capability; runtime availability is authoritative from `GET /v1/models`.
 3. Collect only missing required fields.
-4. **先 `--dry-run`**。CLI 默认打印人类可读 **confirmCard**（不是原始 JSON）。
-5. **把 confirmCard 全文贴进聊天**，包含：任务数、capability、model、时长/分辨率/画幅、参考图、输出路径、prompt 摘要、凭据规则。
-6. 用户明确回复「确认提交」后，去掉 `--dry-run` 再 POST。
+4. **先 `--dry-run`**。它会用已保存 Key 只读请求 `/v1/models` 与 `/api/pricing`，CLI 默认打印人类可读 **confirmCard**（不是原始 JSON），不会发付费 POST。
+5. **把 confirmCard 全文贴进聊天**，包含：任务数、capability、model、时长/分辨率/画幅、参考图、输出路径、prompt 摘要、`/api/pricing` 单价来源、预计费用、预算上限、凭据规则。
+6. 确认预算上限已明确，且用户明确回复「确认提交」后，去掉 `--dry-run` 再 POST。
 7. 报告 task IDs、状态、脱敏 URL、绝对路径。
 
 ### 单任务
@@ -70,6 +70,7 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs ... --dry-run --json
 - N 个独立任务 → N 路并发（`--jobs-file`）。
 - 单个失败不得取消其它任务。
 - dry-run 的总确认卡必须展示全部任务。
+- 同一批任务只读取一轮 `/v1/models` 与 `/api/pricing`。
 
 ```bash
 node <skill-dir>/scripts/kaiyuncode-video.mjs --jobs-file ./jobs.json --dry-run
@@ -85,9 +86,11 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs \
 
 ## Stop Conditions
 
-- Stop if validation fails or the selected adapter is unavailable.
+- Stop if validation fails, the selected adapter is unavailable, or the model is absent from runtime `GET /v1/models`.
+- Treat `/api/pricing` as the only price source. Never fall back to a snapshot price; a paid POST must stop when pricing is missing.
 - Never automatically retry a paid POST timeout / 429 / 5xx.
 - Do not run real paid requests just to test; use dry-run or mocks.
+- Do not submit while the budget ceiling is unknown.
 - Do not submit after dry-run without pasting the confirmCard and getting explicit user authorization.
 
 Never place an API key in command-line arguments, logs, or chat output.

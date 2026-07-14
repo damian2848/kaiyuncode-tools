@@ -15,6 +15,11 @@ import {
   submitTask,
 } from "../../../shared/http-client.mjs";
 import { redactSensitive } from "../../../shared/redaction.mjs";
+import {
+  loadRuntimeCatalog,
+  memoizeRuntimeCatalogLoader,
+  runtimePriceForModel,
+} from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
 const CAPABILITIES_URL = new URL(
@@ -371,6 +376,7 @@ export async function persistImageResult({
 
 const DEFAULT_DEPENDENCIES = {
   loadCapabilities,
+  loadRuntimeCatalog,
   resolveCredential,
   submitTask,
   pollTask,
@@ -426,18 +432,24 @@ export async function runImageTask({
   );
   validateValues(adapter, values, files);
   const request = buildAdapterRequest(adapter, values, files);
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
+  const catalog = await deps.loadRuntimeCatalog({ apiKey: credential.apiKey });
+  const priceLabel = runtimePriceForModel(catalog, model, {
+    requirePrice: !dryRun,
+  });
   if (dryRun) {
     return {
       dryRun: true,
       capabilityKey,
       model,
+      ...(priceLabel ? { priceLabel } : {}),
+      ...(catalog.checkedAt ? { catalogCheckedAt: catalog.checkedAt } : {}),
       ...(output !== undefined ? { output } : {}),
       request: request.summary,
     };
   }
-  const credential = await deps.resolveCredential({
-    preferSource: deps.preferSource,
-  });
   const resolvedTaskId = await deps.submitTask({ request, apiKey: credential.apiKey });
   const completed = await deps.pollTask({
     taskId: resolvedTaskId,
@@ -458,9 +470,21 @@ export async function runImageTask({
  * Failures are isolated per job and do not cancel siblings.
  */
 export async function runConcurrentImageTasks(jobs, dependencies = {}) {
-  return runConcurrentTasks(jobs, (job) =>
-    runImageTask({ ...job, dependencies: job.dependencies ?? dependencies }),
-  );
+  const memoizedLoaders = new Map();
+  return runConcurrentTasks(jobs, (job) => {
+    const jobDependencies = job.dependencies ?? dependencies;
+    const loader = jobDependencies.loadRuntimeCatalog ?? loadRuntimeCatalog;
+    if (!memoizedLoaders.has(loader)) {
+      memoizedLoaders.set(loader, memoizeRuntimeCatalogLoader(loader));
+    }
+    return runImageTask({
+      ...job,
+      dependencies: {
+        ...jobDependencies,
+        loadRuntimeCatalog: memoizedLoaders.get(loader),
+      },
+    });
+  });
 }
 
 function takeCliValue(argv, index, option) {
@@ -764,17 +788,19 @@ function isMainModule() {
   return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 }
 
-function writeCliResult(result) {
+export function formatCliResult(result) {
   if (result.help) {
-    process.stdout.write(result.help);
-    return;
+    return result.help;
   }
   const { json, ...payload } = result;
   if (payload.dryRun && payload.confirmCard && !json) {
-    process.stdout.write(`${payload.confirmCard}\n`);
-    return;
+    return `${payload.confirmCard}\n`;
   }
-  process.stdout.write(`${JSON.stringify(redactSensitive(payload), null, 2)}\n`);
+  return `${JSON.stringify(redactSensitive(payload), null, 2)}\n`;
+}
+
+function writeCliResult(result) {
+  process.stdout.write(formatCliResult(result));
 }
 
 if (isMainModule()) {

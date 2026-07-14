@@ -54,12 +54,12 @@ export function buildOnboarding({
         ? "已检测到 KaiyunCode 媒体密钥。是否继续选择模型并 dry-run？"
         : "已检测到 KaiyunCode API Key，是否直接继续？",
       message: forMedia
-        ? "媒体任务使用 env > file 权威密钥。先 dry-run 出确认卡，用户回复「确认提交」后再付费 POST。"
+        ? "媒体任务使用 env > file 权威密钥。先 dry-run 出预算确认卡，预算上限明确且用户回复「确认提交」后再付费 POST。"
         : "已有密钥时可跳过粘贴。只有用户明确要求时，才配置 Codex / Claude Code。",
       steps: forMedia
         ? [
             { label: "选 capability + model", detail: "对照 production snapshot" },
-            { label: "dry-run", detail: "展示 confirmCard 全文给用户" },
+            { label: "dry-run", detail: "展示含预算的 confirmCard 全文给用户" },
             { label: "确认提交", detail: "用户明确授权后再去掉 --dry-run" },
           ]
         : [],
@@ -89,7 +89,7 @@ export function buildOnboarding({
       ? "插件已安装。请直接把 KaiyunCode API Key 粘贴到聊天框。"
       : "请直接把 KaiyunCode API Key 粘贴到聊天框。",
     message: justInstalled
-      ? "安装后先保存权威媒体密钥。默认不改 Codex / Claude Code；图片 / 视频提交前必须 dry-run 确认卡。"
+      ? "安装后先保存权威媒体密钥。默认不改 Codex / Claude Code；图片 / 视频提交前必须 dry-run 预算确认卡。"
       : "收到后保存到 ~/.codex/kaiyun-tools.env 供图片 / 视频使用。默认不改文本客户端；若还没有密钥，回复「没有密钥」。",
     steps: [
       {
@@ -98,7 +98,7 @@ export function buildOnboarding({
       },
       {
         label: "生成前确认",
-        detail: "dry-run → 粘贴 confirmCard → 用户确认后再 POST",
+        detail: "dry-run → 粘贴预算 confirmCard → 预算明确且用户确认后再 POST",
       },
     ],
   };

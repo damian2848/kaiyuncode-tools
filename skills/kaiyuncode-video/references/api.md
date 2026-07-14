@@ -1,8 +1,11 @@
 # KaiyunCode Asynchronous Video API
 
 This reference reflects the bundled, validated intersection of the production
-API tutorial and public model catalog. The bundled JSON snapshot remains the
-machine-readable authority for request construction.
+API tutorial and public adapter catalog. The bundled JSON snapshot is the
+machine-readable authority for request construction only. Every new task uses
+authenticated `GET /v1/models` for current availability and public
+`GET /api/pricing` for current unit prices; neither result falls back to the
+snapshot.
 
 ## Endpoint Allowlist
 
@@ -26,7 +29,7 @@ automatically retried.
 | `video_capability_video_reference_generation` | HappyHorse r2v, Wan r2v, Omni components | Required prompt plus reference image arrays |
 | `video_capability_video_image_audio_to_video` | `video-pro-720p`, `dreamina-mini` | Required prompt and image; optional/limited audio arrays |
 | `video_capability_video_multimodal_to_video` | `wan2.7-r2v`, `video-pro-720p` | Multimodal image/video/audio combinations |
-| `video_capability_video_recreate` | Omni edit, HappyHorse edit, Wan videoedit | Required source video plus prompt or `messages[]` |
+| `video_capability_video_recreate` | Omni edit/dewatermark, HappyHorse edit, Wan videoedit | Required source video via `video_url`, `input_video`, `metadata.video`, or `input.media[]`; prompt is profile-dependent |
 
 The runner selects the exact adapter by capability key and model, then by
 normalized parameter schema when a model has multiple profiles. This is schema
@@ -42,6 +45,7 @@ Many production adapters use dotted parameter names:
 | `input.media[]` | Array of `{ type, url, ... }` media objects |
 | `metadata.resolution` / `metadata.ratio` / `metadata.duration` | HappyHorse metadata |
 | `metadata.video` | Source video for HappyHorse edit |
+| `video_url` | Public source video URL for Omni dewatermark |
 | `parameters.duration` / `parameters.mode` / `parameters.watermark` | Nested generation controls |
 | `messages[]` | Omni recreate chat-style instructions |
 
@@ -75,7 +79,7 @@ Do not treat this summary as permission to copy a parameter between models.
 
 ```text
 --capability KEY       Required exact capability key
---model MODEL          Required exact public model
+--model MODEL          Required exact adapter model, checked via GET /v1/models
 --prompt TEXT          Video prompt
 --param KEY=VALUE      Repeat for adapter parameters (dotted keys allowed)
 --image URL_OR_PATH    Repeat for image references or multipart files
@@ -84,14 +88,17 @@ Do not treat this summary as permission to copy a parameter between models.
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
 --credential-source S  Prefer env|file|codex|claude for this run
---dry-run              Validate and print a human confirmation card (no network)
+--dry-run              Validate, perform two read-only GETs, and print a budget card
 --json                 Print full JSON (includes confirmCard on dry-run)
 ```
 
 Media credentials resolve as `env > file` (canonical `~/.codex/kaiyun-tools.env`).
 Codex/Claude keys are fallback only when both are absent. Default dry-run
-stdout is a human-readable confirmation card that agents must paste into chat
-before paid POST.
+stdout is a human-readable confirmation card with public unit price, estimated
+cost, and budget ceiling. Agents must paste it into chat before paid POST. If
+the budget ceiling is unknown, confirm pricing before submission. Unit prices
+are sourced only from `https://kaiyuncode.com/api/pricing`. Dry-run sends no
+paid POST. A jobs-file batch shares one runtime catalog request round.
 
 Resume is independent of the original submission fields:
 

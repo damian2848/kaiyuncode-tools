@@ -1,6 +1,6 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "Configure agent clients and run KaiyunCode image and video workflows.",
   "author": {
     "name": "KaiyunCode"
@@ -9,8 +9,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "KaiyunCode Tools",
-    "shortDescription": "粘贴密钥做图片/视频；按需配置客户端。提交前展示确认卡。",
-    "longDescription": "安装后在聊天框粘贴 API Key，保存为图片/视频权威密钥。默认不改 Codex / Claude Code。媒体任务凭据优先 env > file，不再因客户端密钥冲突阻塞。付费生成前 dry-run 输出人类可读确认卡。",
+    "shortDescription": "实时校验模型与价格；提交前展示预算确认卡。",
+    "longDescription": "安装后在聊天框粘贴 API Key，保存为图片/视频权威密钥。默认不改 Codex / Claude Code。媒体任务凭据优先 env > file。每次新任务从 /v1/models 校验可用模型、从 /api/pricing 获取实时单价；付费生成前 dry-run 输出预计费用和预算上限的可读确认卡。",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [
