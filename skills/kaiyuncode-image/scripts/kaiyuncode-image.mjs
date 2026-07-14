@@ -288,6 +288,7 @@ function validateFiles(adapter, files) {
   }
   const provided = new Map();
   for (const file of files) {
+    if (file?.inline === true) continue;
     const count = (provided.get(file?.field) ?? 0) + 1;
     provided.set(file?.field, count);
     const limit = uploadLimits.get(file?.field) ?? 0;
@@ -616,7 +617,8 @@ function addParam(values, name, value) {
     if (!Array.isArray(values[name])) {
       throw new Error(`CLI parameter ${name} conflicts with a scalar value`);
     }
-    values[name].push(value);
+    if (Array.isArray(value)) values[name].push(...value);
+    else values[name].push(value);
     return;
   }
   if (Object.hasOwn(values, name)) {
@@ -632,10 +634,27 @@ async function localFile(path, field, readFileImpl) {
   } catch {
     throw new Error(`Unable to read --${field} file ${basename(path)}`);
   }
+  const extension = basename(path).split(".").at(-1)?.toLowerCase();
+  const mimeTypes = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    avif: "image/avif",
+  };
+  const mimeType = mimeTypes[extension];
+  if (!mimeType) {
+    throw new Error(`Unsupported local image type for --${field}: ${basename(path)}`);
+  }
+  const data = new Blob([bytes], { type: mimeType });
   return {
     field,
-    data: new Blob([bytes]),
+    data,
     filename: basename(path),
+    inline: true,
+    kind: field === "mask" ? "mask" : "image",
+    value: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
   };
 }
 
@@ -655,35 +674,29 @@ export async function prepareCliInput(parsed, { readFile: readFileImpl = readFil
   const files = [];
 
   if (parsed.images.length > 0) {
-    if (parsed.capabilityKey === "image_edit") {
-      const remote = parsed.images.filter(mediaIsRemote);
-      const local = parsed.images.filter((value) => !mediaIsRemote(value));
-      if (remote.length > 0 && local.length > 0) {
-        throw new Error("image_edit accepts either remote --image values or documented local multipart files");
+    const images = [];
+    for (const image of parsed.images) {
+      if (mediaIsRemote(image)) {
+        images.push(image);
+      } else {
+        const file = await localFile(image, "image", readFileImpl);
+        files.push(file);
+        images.push(file.value);
       }
-      if (remote.length === 1) addParam(values, "image", remote[0]);
-      if (remote.length > 1) {
+    }
+    if (parsed.capabilityKey === "image_edit") {
+      if (images.length === 1) addParam(values, "image", images[0]);
+      if (images.length > 1) {
         if (Object.hasOwn(values, "image")) {
           throw new Error("CLI parameter image conflicts with repeated --image values");
         }
-        values.image = remote;
-      }
-      for (const path of local) {
-        files.push(await localFile(path, "image", readFileImpl));
-      }
-      if (local.length > 0 && !Object.hasOwn(values, "image")) {
-        values.image = local[0];
+        values.image = images;
       }
     } else if (
       parsed.capabilityKey === "image_multi_reference" ||
       parsed.capabilityKey === "image_sequential_generation"
     ) {
-      for (const image of parsed.images) {
-        if (!mediaIsRemote(image)) {
-          throw new Error("This image capability requires public HTTPS image URLs or data URLs");
-        }
-        addParam(values, "image_urls[]", image);
-      }
+      addParam(values, "image_urls[]", images);
     } else {
       throw new Error(`${parsed.capabilityKey} does not document --image input`);
     }
@@ -693,8 +706,9 @@ export async function prepareCliInput(parsed, { readFile: readFileImpl = readFil
     if (mediaIsRemote(parsed.mask)) {
       addParam(values, "mask", parsed.mask);
     } else {
-      files.push(await localFile(parsed.mask, "mask", readFileImpl));
-      addParam(values, "mask", parsed.mask);
+      const file = await localFile(parsed.mask, "mask", readFileImpl);
+      files.push(file);
+      addParam(values, "mask", file.value);
     }
   }
 

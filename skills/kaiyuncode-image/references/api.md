@@ -50,18 +50,17 @@ protocol inference from a model name.
 | `image_size` | Adobe aliases use `1K`, `2K`, or `4K`; do not replace it with `size` |
 | `aspect_ratio` | Use only ratios listed by the selected adapter |
 | `enable_sequential` | Must be `true` for sequential generation |
-| `image_urls[]` | Public HTTPS URL or image data URL; Wan reference and reference-sequential profiles allow at most 9 images |
+| `image_urls[]` | 本机图片、HTTPS URL 或图片 data URL；Wan 参考与参考组图 profile 最多 9 张 |
 
 The runner validates the actual parameter table attached to the exact adapter.
 Do not treat this summary as permission to copy a parameter between models.
 
 ## Files And URLs
 
-- JSON media fields reject local paths. Use a public HTTPS URL or image data URL.
-- Local edit inputs are read into `Blob` values and sent only through a multipart variant that documents the matching upload field.
-- `--image` is repeatable. The selected adapter controls whether one or multiple multipart `image` fields are valid.
-- Wan image edit preserves repeated remote `--image` URLs in order. A single remote URL is sent once; other adapters reject counts above their documented multipart cardinality.
-- `--mask` may be a URL or local file, but submission stops unless the selected snapshot variant documents the corresponding field.
+- `--image` 和 `--mask` 都接受本机文件路径；Runner 会读取文件并封装为媒体负载，KaiyunCode 负责转存为上游需要的公网资源。
+- 多图参考、组图、编辑和蒙版都不要求用户自行准备公网 URL；`--image` 可重复使用并保留输入顺序。
+- 用户主动提供远程资源时必须使用无内嵌凭据的 HTTPS URL；也支持图片 data URL。
+- 直接调用底层 `values` 时不能只放一个本机路径字符串，因为服务端无法读取调用方文件系统；应通过 `--image`、`--mask` 或 jobs 的 `images`、`mask` 字段交给 Runner 读取。
 - Dry-run summaries contain only safe file metadata such as a basename, never the file contents or full local directory.
 
 ## CLI
@@ -71,7 +70,7 @@ Do not treat this summary as permission to copy a parameter between models.
 --model MODEL          Required exact adapter model, checked via GET /v1/models
 --prompt TEXT          Image prompt
 --param KEY=VALUE      Repeat for adapter parameters
---image URL_OR_PATH    Repeat for references or documented multipart files
+--image URL_OR_PATH    Repeat for local files or remote references
 --mask URL_OR_PATH     Edit mask
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination

@@ -36,6 +36,41 @@ const PARAM_KEYS = [
   "seed",
 ];
 
+const RESOURCE_TYPES = {
+  image: { label: "参考图", unit: "张" },
+  video: { label: "参考视频", unit: "个" },
+  audio: { label: "参考音频", unit: "个" },
+  mask: { label: "蒙版", unit: "张" },
+};
+
+const RESOURCE_FIELDS = new Map([
+  ["image", "image"],
+  ["image_url", "image"],
+  ["images", "image"],
+  ["images[]", "image"],
+  ["image_urls", "image"],
+  ["image_urls[]", "image"],
+  ["reference_image_urls", "image"],
+  ["reference_image_urls[]", "image"],
+  ["extra_images", "image"],
+  ["extra_images[]", "image"],
+  ["mask", "mask"],
+  ["audio", "audio"],
+  ["audio_url", "audio"],
+  ["audio_urls", "audio"],
+  ["audio_urls[]", "audio"],
+  ["extra_audios", "audio"],
+  ["extra_audios[]", "audio"],
+  ["video", "video"],
+  ["input_video", "video"],
+  ["video_url", "video"],
+  ["metadata.video", "video"],
+  ["extra_videos", "video"],
+  ["extra_videos[]", "video"],
+  ["input.media", "dynamic"],
+  ["input.media[]", "dynamic"],
+]);
+
 function present(value) {
   return value !== undefined && value !== null && value !== "";
 }
@@ -110,7 +145,15 @@ function formatMediaValue(value) {
     if (/^https?:\/\//iu.test(value)) {
       try {
         const url = new URL(value);
-        return `${url.origin}/.../${url.pathname.split("/").filter(Boolean).at(-1) ?? ""}`;
+        const encodedName = url.pathname.split("/").filter(Boolean).at(-1);
+        if (!encodedName) return "[remote-url]";
+        let name = encodedName;
+        try {
+          name = decodeURIComponent(encodedName);
+        } catch {
+          // Keep malformed percent-encoding readable without exposing the full URL.
+        }
+        return `${basename(name)}（远程）`;
       } catch {
         return "[remote-url]";
       }
@@ -132,41 +175,85 @@ function formatMediaValue(value) {
   return null;
 }
 
-function collectMedia(flat) {
-  const labels = [];
-  const mediaKeys = [
-    "image",
-    "image_url",
-    "images",
-    "images[]",
-    "image_urls[]",
-    "reference_image_urls[]",
-    "extra_images[]",
-    "mask",
-    "audio",
-    "audio_urls[]",
-    "extra_audios[]",
-    "video",
-    "input_video",
-    "video_url",
-    "metadata.video",
-    "extra_videos[]",
-    "input.media[]",
-  ];
-  for (const key of mediaKeys) {
-    if (!Object.hasOwn(flat, key)) continue;
-    const formatted = formatMediaValue(flat[key]);
-    if (formatted) labels.push(`${key}=${formatted}`);
-  }
-  // file-like values under any key
+function resourceTypeFromMedia(item) {
+  const type = typeof item?.type === "string" ? item.type.toLowerCase() : "";
+  if (/audio|voice/u.test(type)) return "audio";
+  if (/video|clip/u.test(type)) return "video";
+  return "image";
+}
+
+function inferredResourceType(key) {
+  if (/mask/iu.test(key)) return "mask";
+  if (/audio|voice/iu.test(key)) return "audio";
+  if (/video|clip/iu.test(key)) return "video";
+  if (/image|media|frame/iu.test(key)) return "image";
+  return null;
+}
+
+function addResource(groups, type, value) {
+  const formatted = formatMediaValue(value);
+  if (!formatted || !RESOURCE_TYPES[type]) return;
+  if (!groups.has(type)) groups.set(type, []);
+  groups.get(type).push(formatted);
+}
+
+function collectResources(flat, localResources = []) {
+  const groups = new Map();
   for (const [key, value] of Object.entries(flat)) {
-    if (mediaKeys.includes(key)) continue;
-    if (value && typeof value === "object" && value.type === "File") {
-      const formatted = formatMediaValue(value);
-      if (formatted) labels.push(`${key}=${formatted}`);
+    const configuredType = RESOURCE_FIELDS.get(key);
+    const items = Array.isArray(value) ? value : [value];
+    if (configuredType) {
+      for (const item of items) {
+        const type =
+          configuredType === "dynamic"
+            ? resourceTypeFromMedia(item)
+            : configuredType;
+        addResource(groups, type, item);
+        if (item?.reference_voice) {
+          addResource(groups, "audio", item.reference_voice);
+        }
+      }
+      continue;
+    }
+
+    for (const item of items) {
+      if (
+        item &&
+        typeof item === "object" &&
+        (item.type === "File" || item.type === "Blob" || item.name)
+      ) {
+        const type = inferredResourceType(key);
+        if (type) addResource(groups, type, item);
+      }
     }
   }
-  return labels;
+  for (const resource of localResources) {
+    const type = RESOURCE_TYPES[resource?.type] ? resource.type : null;
+    if (!type) continue;
+    const items = groups.get(type) ?? [];
+    const placeholder = items.findIndex(
+      (item) => item === "data-url" || item === "[REDACTED BASE64]",
+    );
+    if (placeholder >= 0) items.splice(placeholder, 1);
+    groups.set(type, items);
+    addResource(groups, type, {
+      type: "File",
+      name: resource.name,
+      size: resource.size,
+    });
+  }
+  return groups;
+}
+
+function formatResources(groups) {
+  const parts = [];
+  for (const type of ["image", "video", "audio", "mask"]) {
+    const items = groups.get(type) ?? [];
+    if (items.length === 0) continue;
+    const { label, unit } = RESOURCE_TYPES[type];
+    parts.push(`${label} ${items.length} ${unit}（${items.join("、")}）`);
+  }
+  return parts.length > 0 ? parts.join("；") : "无";
 }
 
 function collectParams(flat) {
@@ -194,7 +281,7 @@ function jobLines(job, index, total) {
   const flat = flattenBody(request.body);
   const prompt = firstPrompt(flat);
   const params = collectParams(flat);
-  const media = collectMedia(flat);
+  const resources = collectResources(flat, request.localResources);
   const header = `${index + 1}/${total}`;
 
   const lines = [
@@ -206,7 +293,11 @@ function jobLines(job, index, total) {
     lines.push("- 模型校验：已通过实时 GET /v1/models");
   }
   if (params.length > 0) lines.push(`- 参数：${params.join(" · ")}`);
-  if (media.length > 0) lines.push(`- 素材：${media.join("；")}`);
+  lines.push(
+    job.resume || job.taskId
+      ? "- 参考资源：沿用原任务（当前恢复信息未包含资源清单）"
+      : `- 参考资源：${formatResources(resources)}`,
+  );
   lines.push(`- 提示词：${truncatePrompt(prompt)}`);
   if (job.output) lines.push(`- 输出：${job.output}`);
   if (job.resume || job.taskId) {

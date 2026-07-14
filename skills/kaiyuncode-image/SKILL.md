@@ -43,7 +43,8 @@ KAIYUN_API_KEY='...' node <skill-dir>/../kaiyuncode-configure-agents/scripts/sav
 2. 映射到 [production adapter reference](references/api.md) 中的 capability，然后运行 `--list-models --capability KEY` 获取当前模型与实时价格。
 3. 只从返回结果中给出最多 3 个候选，优先推荐 1 个；说明单价、适用理由和所需素材。Never use `gpt-image-2-max`。
 4. 整理最终提示词、素材、关键参数和输出路径，只收集选定适配器缺少的必填字段。
-5. **先 `--dry-run`**；它会再次校验 `/v1/models` 与 `/api/pricing`，默认输出实时单价、预计费用和预算上限的 **confirmCard**，不会发付费 POST。
+   所有参考图和蒙版都可直接使用本机文件；不要要求用户先上传对象存储或准备公网 URL。Runner 会读取并封装本机文件，由 KaiyunCode 转存。
+5. **先 `--dry-run`**；它会再次校验 `/v1/models` 与 `/api/pricing`，默认输出模型、参数、参考资源数量与安全文件名、实时单价、预计费用和预算上限的 **confirmCard**，不会发付费 POST；没有参考资源时明确显示「无」。
 6. **把 confirmCard 全文贴进聊天**，确认预计费用和预算上限均已明确，再索取「确认提交」。确认卡展示后必须停止当前轮。
 7. 用户明确授权后去掉 `--dry-run`，使用完全相同的参数提交；报告 task IDs、状态、脱敏 URL、绝对路径并展示图片。
 8. 根据原目标给出不超过 3 个具体迭代方向。任何修改都属于新任务，必须重新 dry-run 和确认。

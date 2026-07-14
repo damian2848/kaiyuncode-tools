@@ -6,7 +6,7 @@ import {
   withConfirmCard,
 } from "../shared/confirm-card.mjs";
 
-test("formatConfirmCard summarizes model, params, media, and prompt", () => {
+test("formatConfirmCard summarizes model, params, reference resources, and prompt", () => {
   const card = formatConfirmCard({
     kind: "video",
     jobs: [
@@ -39,8 +39,8 @@ test("formatConfirmCard summarizes model, params, media, and prompt", () => {
   assert.match(card, /duration=10/);
   assert.match(card, /resolution=720p/);
   assert.match(card, /aspect_ratio=9:16/);
-  assert.match(card, /image_url=data-url/);
-  assert.match(card, /video_url=https:\/\/assets\.example\.test\/\.\.\.\/source\.mp4/);
+  assert.match(card, /参考资源：参考图 1 张（data-url）/);
+  assert.match(card, /参考视频 1 个（source\.mp4（远程））/);
   assert.match(card, /输出：\/tmp\/shot1\.mp4/);
   assert.match(card, /A clean product shot/);
   assert.match(card, /预算/);
@@ -79,9 +79,67 @@ test("formatConfirmCard handles FormData file summaries", () => {
     ],
   });
   assert.match(card, /KaiyunCode 图片/);
-  assert.match(card, /cup\.png/);
+  assert.match(card, /参考资源：参考图 1 张（cup\.png \(1200 bytes\)）/);
   assert.match(card, /edit the cup/);
   assert.match(card, /预计费用：\$0\.0150/);
+});
+
+test("formatConfirmCard counts every nested reference and lists safe file names", () => {
+  const card = formatConfirmCard({
+    kind: "video",
+    jobs: [
+      {
+        capabilityKey: "video_capability_video_multimodal_to_video",
+        model: "wan2.7-r2v",
+        priceLabel: "$0.1000/次",
+        request: {
+          method: "POST",
+          path: "/v1/videos",
+          body: {
+            prompt: "Create a product video",
+            reference_image_urls: [
+              "https://assets.example.test/front.png?token=private",
+              "https://assets.example.test/side.png",
+            ],
+            input: {
+              media: [
+                {
+                  type: "last_frame",
+                  url: "https://assets.example.test/last.png",
+                },
+                {
+                  type: "reference_video",
+                  url: "https://assets.example.test/demo.mp4?signature=private",
+                  reference_voice:
+                    "https://assets.example.test/voice.mp3?token=private",
+                },
+                {
+                  type: "reference_audio",
+                  url: "https://assets.example.test/music.mp3",
+                },
+              ],
+            },
+            mask: { type: "File", name: "/private/masks/product-mask.png", size: 42 },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.match(card, /参考图 3 张/);
+  assert.match(card, /front\.png/);
+  assert.match(card, /side\.png/);
+  assert.match(card, /last\.png/);
+  assert.match(card, /参考视频 1 个.*demo\.mp4/);
+  assert.match(card, /参考音频 2 个/);
+  assert.match(card, /voice\.mp3/);
+  assert.match(card, /music\.mp3/);
+  assert.match(card, /蒙版 1 张.*product-mask\.png/);
+  assert.match(card, /front\.png（远程）/);
+  assert.match(card, /demo\.mp4（远程）/);
+  assert.doesNotMatch(card, /assets\.example\.test/);
+  assert.doesNotMatch(card, /private/);
+  assert.doesNotMatch(card, /signature|token/);
 });
 
 test("withConfirmCard attaches cards to single and concurrent dry-runs", () => {
@@ -100,6 +158,7 @@ test("withConfirmCard attaches cards to single and concurrent dry-runs", () => {
     { kind: "image" },
   );
   assert.match(single.confirmCard, /确认提交/);
+  assert.match(single.confirmCard, /参考资源：无/);
   assert.equal(single.dryRun, true);
 
   const concurrent = withConfirmCard(
@@ -177,6 +236,7 @@ test("formatConfirmCard gives resumed tasks a zero budget without POST wording",
   assert.match(card, /付费 POST：0 次/);
   assert.match(card, /预计费用：\$0\.0000/);
   assert.match(card, /参考单价：不适用/);
+  assert.match(card, /参考资源：沿用原任务（当前恢复信息未包含资源清单）/);
   assert.match(card, /确认继续.*不发起付费 POST/);
   assert.doesNotMatch(card, /确认提交/);
 });
