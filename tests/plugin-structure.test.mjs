@@ -4,12 +4,12 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("manifest exposes exactly three KaiyunCode skills", async () => {
+test("manifest exposes the four KaiyunCode workflow skills", async () => {
   const manifest = JSON.parse(
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.1.3");
+  assert.equal(manifest.version, "0.2.0");
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
@@ -21,6 +21,7 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
   ]);
 
   const skills = {
+    "kaiyuncode-create": "../kaiyuncode-image/scripts/kaiyuncode-image.mjs",
     "kaiyuncode-configure-agents": "scripts/configure-agents.mjs",
     "kaiyuncode-image": "scripts/kaiyuncode-image.mjs",
     "kaiyuncode-video": "scripts/kaiyuncode-video.mjs",
@@ -43,8 +44,20 @@ test("manifest exposes exactly three KaiyunCode skills", async () => {
     new URL("skills/kaiyuncode-video/SKILL.md", root),
     "utf8",
   );
+  const createSkill = await readFile(
+    new URL("skills/kaiyuncode-create/SKILL.md", root),
+    "utf8",
+  );
+  assert.match(createSkill, /创意简报/);
+  assert.match(createSkill, /实时选型/);
+  assert.match(createSkill, /预算确认/);
+  assert.match(createSkill, /生成与交付/);
+  assert.match(createSkill, /迭代/);
+  assert.match(createSkill, /--list-models/);
   assert.match(imageSkill, /confirmCard|确认卡/);
   assert.match(videoSkill, /confirmCard|确认卡/);
+  assert.match(imageSkill, /预算/);
+  assert.match(videoSkill, /预算/);
   assert.match(imageSkill, /credential-source|权威|env > file|env →/);
   assert.match(videoSkill, /credential-source|权威|env > file|env →/);
 

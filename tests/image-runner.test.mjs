@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  executeCli,
+  formatCliResult,
+  listImageModels,
   parseCliArguments,
   persistImageResult,
   prepareCliInput,
@@ -24,7 +25,7 @@ const productionCapabilities = JSON.parse(
 );
 
 function createImageDeps() {
-  const calls = { credential: 0, submit: 0, poll: 0, persist: 0 };
+  const calls = { credential: 0, catalog: 0, submit: 0, poll: 0, persist: 0 };
   return {
     calls,
     loadCapabilities: async () => ({
@@ -55,6 +56,26 @@ function createImageDeps() {
       calls.credential += 1;
       return { apiKey: "test-key", source: "test" };
     },
+    loadRuntimeCatalog: async () => {
+      calls.catalog += 1;
+      const models = new Set(
+        productionCapabilities.imageCapabilities.flatMap((capability) =>
+          capability.adapters.map(({ model }) => model),
+        ),
+      );
+      models.add("gpt-image-2");
+      models.add("name-looks-like-edit");
+      models.add("constraint-model");
+      return {
+        availableModels: models,
+        priceLabels: new Map(
+          [...models].map((model) => [
+            model,
+            model === "gpt-image-2" ? "$0.0150/次" : "$0.1000/次",
+          ]),
+        ),
+      };
+    },
     submitTask: async () => {
       calls.submit += 1;
       return "img_new";
@@ -84,16 +105,18 @@ test("retired Max model is rejected before submission", async () => {
     /not available in the production model catalog/,
   );
   assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
   assert.equal(deps.calls.submit, 0);
 });
 
-test("dry-run builds the normalized async request without credentials or network", async () => {
+test("dry-run builds the request after read-only runtime catalog checks", async () => {
   const deps = createImageDeps();
   const result = await runImageTask({ ...baseInput, dryRun: true, dependencies: deps });
   assert.deepEqual(result, {
     dryRun: true,
     capabilityKey: "image_text_generation",
     model: "gpt-image-2",
+    priceLabel: "$0.0150/次",
     request: {
       method: "POST",
       path: "/v1/images/async/generations",
@@ -102,7 +125,8 @@ test("dry-run builds the normalized async request without credentials or network
     },
   });
   assert.deepEqual(deps.calls, {
-    credential: 0,
+    credential: 1,
+    catalog: 1,
     submit: 0,
     poll: 0,
     persist: 0,
@@ -193,7 +217,8 @@ test("every bundled public image adapter in all four capabilities has an async d
         ]).has(result.request.path),
       );
       assert.deepEqual(deps.calls, {
-        credential: 0,
+        credential: 1,
+        catalog: 1,
         submit: 0,
         poll: 0,
         persist: 0,
@@ -365,7 +390,8 @@ test("deterministic constraints accept legal values for all 20 production image 
         dependencies: deps,
       });
       assert.equal(result.dryRun, true);
-      assert.equal(deps.calls.credential, 0);
+      assert.equal(deps.calls.credential, 1);
+      assert.equal(deps.calls.catalog, 1);
       count += 1;
     }
   }
@@ -655,6 +681,45 @@ test("CLI rejects api-key argv without echoing its value", () => {
   );
 });
 
+test("CLI lists current compatible image models and live prices without POST", async () => {
+  const deps = createProductionDeps();
+  const result = await executeCli(
+    ["--list-models", "--capability", "image_text_generation"],
+    deps,
+  );
+  const output = formatCliResult(result);
+
+  assert.equal(result.catalog, true);
+  assert.equal(result.kind, "image");
+  assert.equal(result.capabilities.length, 1);
+  assert.match(output, /KaiyunCode 实时图片模型/);
+  assert.match(output, /gpt-image-2｜\$0\.0150\/次/);
+  assert.equal(deps.calls.credential, 1);
+  assert.equal(deps.calls.catalog, 1);
+  assert.equal(deps.calls.submit, 0);
+  assert.equal(deps.calls.poll, 0);
+});
+
+test("image model discovery rejects task arguments before credentials", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    executeCli(["--list-models", "--model", "gpt-image-2"], deps),
+    /only accepts --capability.*--credential-source.*--json/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
+});
+
+test("listImageModels rejects unknown capability before runtime lookup", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    listImageModels({ capabilityKey: "missing", dependencies: deps }),
+    /Image capability missing is not available/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
+});
+
 test("CLI prepares repeated local image and mask files with basename-only metadata", async () => {
   const reads = [];
   const input = await prepareCliInput(
@@ -721,26 +786,8 @@ test("CLI task-id-only resume needs no capability, model, prompt, or file reads"
   });
 });
 
-function runCli(args, env = {}) {
-  const script = fileURLToPath(
-    new URL("../skills/kaiyuncode-image/scripts/kaiyuncode-image.mjs", import.meta.url),
-  );
-  return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(process.execPath, [script, ...args], {
-      env: { ...process.env, ...env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
-    child.once("error", rejectRun);
-    child.once("close", (code) => resolveRun({ code, stdout, stderr }));
-  });
-}
-
-test("CLI dry-run executes from the bundled snapshot without credentials", async () => {
-  const result = await runCli(
+test("CLI dry-run uses injected read-only runtime catalog data", async () => {
+  const result = await executeCli(
     [
       "--capability", "image_text_generation",
       "--model", "gpt-image-2",
@@ -748,31 +795,31 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
       "--dry-run",
       "--json",
     ],
-    { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
+    createProductionDeps(),
   );
-  assert.equal(result.code, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
+  const output = JSON.parse(formatCliResult(result));
   assert.equal(output.dryRun, true);
   assert.equal(output.request.path, "/v1/images/async/generations");
-  assert.match(output.confirmCard, /KaiyunCode 图片 · 待确认/);
+  assert.match(output.confirmCard, /KaiyunCode 图片任务确认/);
   assert.match(output.confirmCard, /gpt-image-2/);
-  assert.ok(!`${result.stdout}${result.stderr}`.includes("dry-run-must-not-be-read"));
+  assert.match(output.confirmCard, /预计费用：\$0\.0150/);
 });
 
 test("CLI dry-run default stdout is a human confirmation card", async () => {
-  const result = await runCli(
+  const result = await executeCli(
     [
       "--capability", "image_text_generation",
       "--model", "gpt-image-2",
       "--prompt", "CLI dry run card",
       "--dry-run",
     ],
-    { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
+    createProductionDeps(),
   );
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /【KaiyunCode 图片 · 待确认】/);
-  assert.match(result.stdout, /确认提交/);
-  assert.throws(() => JSON.parse(result.stdout));
+  const output = formatCliResult(result);
+  assert.match(output, /【KaiyunCode 图片任务确认】/);
+  assert.match(output, /预算上限：\$0\.0150/);
+  assert.match(output, /确认提交/);
+  assert.throws(() => JSON.parse(output));
 });
 
 
@@ -814,6 +861,7 @@ test("concurrent image jobs submit all before polls complete", async () => {
     await new Promise((r) => setImmediate(r));
   }
   assert.equal(submitCount, 3);
+  assert.equal(deps.calls.catalog, 1);
   assert.equal(pollGates.length, 3);
   assert.ok(order.filter((item) => item.startsWith("submit:")).length === 3);
   // All three submits happened before any poll finished

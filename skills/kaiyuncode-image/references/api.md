@@ -1,8 +1,11 @@
 # KaiyunCode Asynchronous Image API
 
 This reference reflects the bundled, validated intersection of the production
-API tutorial and public model catalog. The bundled JSON snapshot remains the
-machine-readable authority for request construction.
+API tutorial and public adapter catalog. The bundled JSON snapshot is the
+machine-readable authority for request construction only. Every new task uses
+authenticated `GET /v1/models` for current availability and public
+`GET /api/pricing` for current unit prices; neither result falls back to the
+snapshot.
 
 ## Endpoint Allowlist
 
@@ -65,7 +68,7 @@ Do not treat this summary as permission to copy a parameter between models.
 
 ```text
 --capability KEY       Required exact capability key
---model MODEL          Required exact public model
+--model MODEL          Required exact adapter model, checked via GET /v1/models
 --prompt TEXT          Image prompt
 --param KEY=VALUE      Repeat for adapter parameters
 --image URL_OR_PATH    Repeat for references or documented multipart files
@@ -73,14 +76,20 @@ Do not treat this summary as permission to copy a parameter between models.
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
 --credential-source S  Prefer env|file|codex|claude for this run
---dry-run              Validate and print a human confirmation card (no network)
+--list-models          List current compatible models and live prices (GET only)
+--dry-run              Validate, perform two read-only GETs, and print a budget card
 --json                 Print full JSON (includes confirmCard on dry-run)
 ```
 
 Media credentials resolve as `env > file` (canonical `~/.codex/kaiyun-tools.env`).
 Codex/Claude keys are fallback only when both are absent. Default dry-run
-stdout is a human-readable confirmation card that agents must paste into chat
-before paid POST.
+stdout is a human-readable confirmation card with public unit price, estimated
+cost, and budget ceiling. Agents must paste it into chat before paid POST. If
+the budget ceiling is unknown, confirm pricing before submission. Unit prices
+are sourced only from `https://kaiyuncode.com/api/pricing`. Dry-run sends no
+paid POST. A jobs-file batch shares one runtime catalog request round.
+Model discovery can be filtered before planning with
+`--list-models --capability KEY`; it never submits a paid POST.
 
 Resume is independent of the original submission fields:
 

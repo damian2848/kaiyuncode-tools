@@ -8,6 +8,10 @@ import { pathToFileURL } from "node:url";
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
 import { withConfirmCard } from "../../../shared/confirm-card.mjs";
 import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
+import {
+  buildCreativeCatalog,
+  formatCreativeCatalog,
+} from "../../../shared/creative-catalog.mjs";
 import { resolveCredential } from "../../../shared/credentials.mjs";
 import {
   downloadResult,
@@ -15,6 +19,11 @@ import {
   submitTask,
 } from "../../../shared/http-client.mjs";
 import { redactSensitive } from "../../../shared/redaction.mjs";
+import {
+  loadRuntimeCatalog,
+  memoizeRuntimeCatalogLoader,
+  runtimePriceForModel,
+} from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
 const CAPABILITIES_URL = new URL(
@@ -132,7 +141,7 @@ function validateRemoteMedia(parameter, value, files) {
     /^Array<\{/u.test(parameter.type ?? "") ||
     /media\[\]$/u.test(parameter.name);
   const scalarMediaName =
-    /(?:^|[.])(?:image|image_url|images\[\]|input_video|mask|reference_image_urls\[\]|extra_images\[\]|extra_videos\[\]|extra_audios\[\]|audio_urls\[\]|image_urls\[\])$/iu.test(
+    /(?:^|[.])(?:image|image_url|images\[\]|input_video|video_url|mask|reference_image_urls\[\]|extra_images\[\]|extra_videos\[\]|extra_audios\[\]|audio_urls\[\]|image_urls\[\])$/iu.test(
       parameter.name,
     );
   if (!documentsUrl && !objectMedia && !scalarMediaName) return;
@@ -455,11 +464,39 @@ export async function persistVideoResult({
 
 const DEFAULT_DEPENDENCIES = {
   loadCapabilities,
+  loadRuntimeCatalog,
   resolveCredential,
   submitTask,
   pollTask,
   downloadResult,
 };
+
+export async function listVideoModels({
+  capabilityKey,
+  dependencies = {},
+} = {}) {
+  const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+  const snapshot = await deps.loadCapabilities();
+  const capabilities = snapshot.videoCapabilities;
+  if (
+    capabilityKey &&
+    !capabilities.some(({ key }) => key === capabilityKey)
+  ) {
+    throw new Error(`Video capability ${capabilityKey} is not available`);
+  }
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
+  const runtimeCatalog = await deps.loadRuntimeCatalog({
+    apiKey: credential.apiKey,
+  });
+  return buildCreativeCatalog({
+    kind: "video",
+    capabilities,
+    runtimeCatalog,
+    capabilityKey,
+  });
+}
 
 export async function runVideoTask({
   capabilityKey,
@@ -512,18 +549,24 @@ export async function runVideoTask({
   const resolvedValues = remappedValues(adapter, provisional);
   validateValues(adapter, resolvedValues, files);
   const request = buildAdapterRequest(adapter, resolvedValues, files);
+  const credential = await deps.resolveCredential({
+    preferSource: deps.preferSource,
+  });
+  const catalog = await deps.loadRuntimeCatalog({ apiKey: credential.apiKey });
+  const priceLabel = runtimePriceForModel(catalog, model, {
+    requirePrice: !dryRun,
+  });
   if (dryRun) {
     return {
       dryRun: true,
       capabilityKey,
       model,
+      ...(priceLabel ? { priceLabel } : {}),
+      ...(catalog.checkedAt ? { catalogCheckedAt: catalog.checkedAt } : {}),
       ...(output !== undefined ? { output } : {}),
       request: request.summary,
     };
   }
-  const credential = await deps.resolveCredential({
-    preferSource: deps.preferSource,
-  });
   const resolvedTaskId = await deps.submitTask({
     request,
     apiKey: credential.apiKey,
@@ -547,9 +590,21 @@ export async function runVideoTask({
  * Failures are isolated per job and do not cancel siblings.
  */
 export async function runConcurrentVideoTasks(jobs, dependencies = {}) {
-  return runConcurrentTasks(jobs, (job) =>
-    runVideoTask({ ...job, dependencies: job.dependencies ?? dependencies }),
-  );
+  const memoizedLoaders = new Map();
+  return runConcurrentTasks(jobs, (job) => {
+    const jobDependencies = job.dependencies ?? dependencies;
+    const loader = jobDependencies.loadRuntimeCatalog ?? loadRuntimeCatalog;
+    if (!memoizedLoaders.has(loader)) {
+      memoizedLoaders.set(loader, memoizeRuntimeCatalogLoader(loader));
+    }
+    return runVideoTask({
+      ...job,
+      dependencies: {
+        ...jobDependencies,
+        loadRuntimeCatalog: memoizedLoaders.get(loader),
+      },
+    });
+  });
 }
 
 function takeCliValue(argv, index, option) {
@@ -573,6 +628,7 @@ export function parseCliArguments(argv) {
     output: undefined,
     jobsFile: undefined,
     credentialSource: undefined,
+    listModels: false,
     dryRun: false,
     json: false,
     help: false,
@@ -594,6 +650,10 @@ export function parseCliArguments(argv) {
     }
     if (option === "--dry-run") {
       parsed.dryRun = true;
+      continue;
+    }
+    if (option === "--list-models") {
+      parsed.listModels = true;
       continue;
     }
     if (option === "--json") {
@@ -736,6 +796,10 @@ function applyRemoteAudios(names, values, audios) {
 
 function applyRemoteVideos(capabilityKey, names, values, videos) {
   if (videos.length === 0) return;
+  if (names.has("video_url") && videos.length === 1) {
+    addParam(values, "video_url", videos[0]);
+    return;
+  }
   if (names.has("input_video") && videos.length === 1) {
     addParam(values, "input_video", videos[0]);
     return;
@@ -849,6 +913,7 @@ export async function prepareCliInput(
 
 const CLI_USAGE = `Usage: kaiyuncode-video --capability KEY --model MODEL [options]
    or: kaiyuncode-video --jobs-file jobs.json [--dry-run]
+   or: kaiyuncode-video --list-models [--capability KEY] [--json]
 
 Options:
   --prompt TEXT          Video prompt (maps to prompt or input.prompt)
@@ -860,6 +925,7 @@ Options:
   --output PATH          Result path
   --jobs-file PATH       JSON array of independent jobs; all run concurrently
   --credential-source S  Prefer env|file|codex|claude for this run
+  --list-models          List current compatible models and live prices (GET only)
   --dry-run              Validate and print a human confirmation card (no POST)
   --json                 Print full JSON (always includes confirmCard on dry-run)
   --help                 Show this help
@@ -868,6 +934,25 @@ Credentials: env KAIYUN_API_KEY > ~/.codex/kaiyun-tools.env (canonical).
 Codex/Claude keys are fallback only when env and file are absent.
 Never pass API keys via argv.
 `;
+
+function validateListModelsArguments(parsed) {
+  const hasTaskArguments =
+    parsed.model !== undefined ||
+    parsed.prompt !== undefined ||
+    parsed.taskId !== undefined ||
+    parsed.output !== undefined ||
+    parsed.jobsFile !== undefined ||
+    parsed.dryRun ||
+    parsed.params.length > 0 ||
+    parsed.images.length > 0 ||
+    parsed.audios.length > 0 ||
+    parsed.videos.length > 0;
+  if (hasTaskArguments) {
+    throw new Error(
+      "--list-models only accepts --capability, --credential-source, and --json",
+    );
+  }
+}
 
 export async function loadJobsFile(path, { readFile: readFileImpl = readFile } = {}) {
   let raw;
@@ -940,6 +1025,14 @@ export async function executeCli(argv, dependencies = {}) {
   if (preferSource !== undefined) {
     dependencies = { ...dependencies, preferSource };
   }
+  if (parsed.listModels) {
+    validateListModelsArguments(parsed);
+    const catalog = await listVideoModels({
+      capabilityKey: parsed.capabilityKey,
+      dependencies,
+    });
+    return { ...catalog, json: parsed.json };
+  }
   if (parsed.jobsFile) {
     const specs = await loadJobsFile(parsed.jobsFile, dependencies);
     const jobs = await Promise.all(
@@ -967,17 +1060,22 @@ function isMainModule() {
   );
 }
 
-function writeCliResult(result) {
+export function formatCliResult(result) {
   if (result.help) {
-    process.stdout.write(result.help);
-    return;
+    return result.help;
   }
   const { json, ...payload } = result;
   if (payload.dryRun && payload.confirmCard && !json) {
-    process.stdout.write(`${payload.confirmCard}\n`);
-    return;
+    return `${payload.confirmCard}\n`;
   }
-  process.stdout.write(`${JSON.stringify(redactSensitive(payload), null, 2)}\n`);
+  if (payload.catalog && !json) {
+    return `${formatCreativeCatalog(payload)}\n`;
+  }
+  return `${JSON.stringify(redactSensitive(payload), null, 2)}\n`;
+}
+
+function writeCliResult(result) {
+  process.stdout.write(formatCliResult(result));
 }
 
 if (isMainModule()) {

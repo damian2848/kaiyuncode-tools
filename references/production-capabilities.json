@@ -40,6 +40,7 @@
     "omni_flash_edit",
     "omni_flash_edit-fast",
     "omni_flash_i2v",
+    "veo-omni-flash-dewatermark",
     "video-fast-720p",
     "video-pro-720p",
     "wan2.7-i2v",
@@ -5729,6 +5730,53 @@
                   "value": "@source-video.mp4"
                 }
               ]
+            }
+          ],
+          "pollPath": "/v1/videos/{task_id}"
+        },
+        {
+          "capabilityKey": "video_capability_video_recreate",
+          "model": "veo-omni-flash-dewatermark",
+          "title": "omni视频去水印",
+          "parameters": [
+            {
+              "name": "model",
+              "location": "body",
+              "type": "string",
+              "required": true,
+              "defaultValue": "veo-omni-flash-dewatermark",
+              "range": "veo-omni-flash-dewatermark",
+              "description": "模型 ID，必须使用当前模型的 model 值。"
+            },
+            {
+              "name": "video_url",
+              "location": "body",
+              "type": "string",
+              "required": true,
+              "defaultValue": "-",
+              "range": "公网 HTTPS MP4 URL，不超过 100MB",
+              "description": "待处理视频 URL。必须是公网可访问 MP4。"
+            },
+            {
+              "name": "prompt",
+              "location": "body",
+              "type": "string",
+              "required": false,
+              "defaultValue": "remove watermark",
+              "range": "非空文本",
+              "description": "生成或编辑提示词。"
+            }
+          ],
+          "requestVariants": [
+            {
+              "method": "POST",
+              "path": "/v1/videos",
+              "kind": "json",
+              "template": {
+                "model": "veo-omni-flash-dewatermark",
+                "prompt": "remove watermark",
+                "video_url": "https://example.com/omni-flash-output.mp4"
+              }
             }
           ],
           "pollPath": "/v1/videos/{task_id}"

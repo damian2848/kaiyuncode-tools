@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  executeCli,
+  formatCliResult,
+  listVideoModels,
   parseCliArguments,
   persistVideoResult,
   prepareCliInput,
@@ -24,7 +25,7 @@ const productionCapabilities = JSON.parse(
 );
 
 function createVideoDeps() {
-  const calls = { credential: 0, submit: 0, poll: 0, persist: 0 };
+  const calls = { credential: 0, catalog: 0, submit: 0, poll: 0, persist: 0 };
   return {
     calls,
     loadCapabilities: async () => ({
@@ -67,6 +68,29 @@ function createVideoDeps() {
       calls.credential += 1;
       return { apiKey: "test-key", source: "test" };
     },
+    loadRuntimeCatalog: async () => {
+      calls.catalog += 1;
+      const models = new Set(
+        productionCapabilities.videoCapabilities.flatMap((capability) =>
+          capability.adapters.map(({ model }) => model),
+        ),
+      );
+      models.add("grok-imagine-video");
+      models.add("name-looks-like-edit");
+      return {
+        availableModels: models,
+        priceLabels: new Map(
+          [...models].map((model) => [
+            model,
+            model === "omni_flash"
+              ? "$0.2200/次(720P)，$0.3000/次(1080P)，$0.5000/次(4K)"
+              : model === "grok-imagine-video"
+                ? "$0.0500/6秒，$0.0700/10秒"
+                : "$0.1000/次",
+          ]),
+        ),
+      };
+    },
     submitTask: async () => {
       calls.submit += 1;
       return "vid_new";
@@ -94,7 +118,7 @@ const baseInput = {
   files: [],
 };
 
-test("dry-run builds the normalized async video request without credentials or network", async () => {
+test("dry-run builds the video request after read-only runtime catalog checks", async () => {
   const deps = createVideoDeps();
   const result = await runVideoTask({
     ...baseInput,
@@ -105,6 +129,7 @@ test("dry-run builds the normalized async video request without credentials or n
     dryRun: true,
     capabilityKey: "video_capability_video_text_generation",
     model: "grok-imagine-video",
+    priceLabel: "$0.0500/6秒，$0.0700/10秒",
     request: {
       method: "POST",
       path: "/v1/videos",
@@ -113,7 +138,8 @@ test("dry-run builds the normalized async video request without credentials or n
     },
   });
   assert.deepEqual(deps.calls, {
-    credential: 0,
+    credential: 1,
+    catalog: 1,
     submit: 0,
     poll: 0,
     persist: 0,
@@ -185,6 +211,7 @@ function requiredValue(parameter, adapter) {
     parameter.name === "image" ||
     parameter.name === "image_url" ||
     parameter.name === "input_video" ||
+    parameter.name === "video_url" ||
     parameter.name === "metadata.video"
   ) {
     return parameter.name.includes("video")
@@ -283,7 +310,8 @@ test("every bundled public video adapter in all eight capabilities has an async 
       assert.equal(result.request.path, "/v1/videos");
       assert.equal(result.request.method, "POST");
       assert.deepEqual(deps.calls, {
-        credential: 0,
+        credential: 1,
+        catalog: 1,
         submit: 0,
         poll: 0,
         persist: 0,
@@ -291,7 +319,7 @@ test("every bundled public video adapter in all eight capabilities has an async 
       dryRuns += 1;
     }
   }
-  assert.equal(dryRuns, 33);
+  assert.equal(dryRuns, 34);
 });
 
 test("adapter selection requires an exact capability key and model pair", async () => {
@@ -314,6 +342,67 @@ test("adapter selection requires an exact capability key and model pair", async 
     }),
     /video model.*not available/i,
   );
+});
+
+test("runtime /v1/models rejects both retired fast models before submission", async () => {
+  const retired = [
+    {
+      capabilityKey: "video_capability_video_text_generation",
+      model: "omni_flash-fast",
+      values: { prompt: "test" },
+    },
+    {
+      capabilityKey: "video_capability_video_recreate",
+      model: "omni_flash_edit-fast",
+      values: {
+        input_video: "https://assets.example.test/source.mp4",
+        "messages[]": [{ role: "user", content: "recreate" }],
+      },
+    },
+  ];
+
+  for (const input of retired) {
+    const deps = createProductionDeps();
+    deps.loadRuntimeCatalog = async () => {
+      deps.calls.catalog += 1;
+      return {
+        availableModels: new Set(["grok-imagine-video"]),
+        priceLabels: new Map(),
+      };
+    };
+    await assert.rejects(
+      runVideoTask({ ...input, dryRun: true, dependencies: deps }),
+      /not currently available from GET \/v1\/models/,
+    );
+    assert.equal(deps.calls.credential, 1);
+    assert.equal(deps.calls.catalog, 1);
+    assert.equal(deps.calls.submit, 0);
+  }
+});
+
+test("missing runtime pricing is visible in dry-run and blocks a paid POST", async () => {
+  const missingPriceCatalog = async () => ({
+    availableModels: new Set(["grok-imagine-video"]),
+    priceLabels: new Map(),
+  });
+  const dryDeps = createVideoDeps();
+  dryDeps.loadRuntimeCatalog = missingPriceCatalog;
+  const dryRun = await runVideoTask({
+    ...baseInput,
+    dryRun: true,
+    dependencies: dryDeps,
+  });
+  assert.equal(dryRun.priceLabel, undefined);
+  assert.equal(dryDeps.calls.submit, 0);
+
+  const submitDeps = createVideoDeps();
+  submitDeps.loadRuntimeCatalog = missingPriceCatalog;
+  await assert.rejects(
+    runVideoTask({ ...baseInput, dependencies: submitDeps }),
+    /\/api\/pricing has no parseable price.*refusing paid POST/i,
+  );
+  assert.equal(submitDeps.calls.submit, 0);
+  assert.equal(submitDeps.calls.poll, 0);
 });
 
 test("request protocol comes from the normalized adapter and not model naming", async () => {
@@ -393,6 +482,7 @@ test("nested metadata and input.media validation fail closed before credentials"
     /required.*input\.media|input\.media.*required/i,
   );
   assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
 });
 
 test("JSON media fields reject local paths and non-HTTPS remote URLs", async () => {
@@ -488,7 +578,8 @@ test("nested input.media dry-run preserves documented media types", async () => 
     { type: "first_frame", url: "https://assets.example.test/first.png" },
     { type: "last_frame", url: "https://assets.example.test/last.png" },
   ]);
-  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.credential, 1);
+  assert.equal(deps.calls.catalog, 1);
 });
 
 test("messages and input_video recreate profile dry-runs", async () => {
@@ -602,6 +693,51 @@ test("CLI rejects api-key argv without echoing its value", () => {
   );
 });
 
+test("CLI lists current compatible video models and live prices without POST", async () => {
+  const deps = createProductionDeps();
+  const result = await executeCli(
+    [
+      "--list-models",
+      "--capability",
+      "video_capability_video_text_generation",
+      "--json",
+    ],
+    deps,
+  );
+  const output = JSON.parse(formatCliResult(result));
+
+  assert.equal(output.catalog, true);
+  assert.equal(output.kind, "video");
+  assert.equal(output.capabilities.length, 1);
+  assert.ok(
+    output.capabilities[0].models.some(({ model }) => model === "omni_flash"),
+  );
+  assert.equal(deps.calls.credential, 1);
+  assert.equal(deps.calls.catalog, 1);
+  assert.equal(deps.calls.submit, 0);
+  assert.equal(deps.calls.poll, 0);
+});
+
+test("video model discovery rejects task arguments before credentials", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    executeCli(["--list-models", "--prompt", "test"], deps),
+    /only accepts --capability.*--credential-source.*--json/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
+});
+
+test("listVideoModels rejects unknown capability before runtime lookup", async () => {
+  const deps = createProductionDeps();
+  await assert.rejects(
+    listVideoModels({ capabilityKey: "missing", dependencies: deps }),
+    /Video capability missing is not available/,
+  );
+  assert.equal(deps.calls.credential, 0);
+  assert.equal(deps.calls.catalog, 0);
+});
+
 test("CLI prepares local image/audio/video files with basename-only metadata", async () => {
   const reads = [];
   const input = await prepareCliInput(
@@ -682,30 +818,24 @@ test("CLI maps remote image lists onto adapter array fields", async () => {
   assert.equal(input.values.prompt, "refs");
 });
 
-function runCli(args, env = {}) {
-  const script = fileURLToPath(
-    new URL("../skills/kaiyuncode-video/scripts/kaiyuncode-video.mjs", import.meta.url),
+test("CLI maps one remote video onto a documented video_url field", async () => {
+  const input = await prepareCliInput(
+    parseCliArguments([
+      "--capability",
+      "video_capability_video_recreate",
+      "--model",
+      "veo-omni-flash-dewatermark",
+      "--video",
+      "https://assets.example.test/source.mp4",
+      "--dry-run",
+    ]),
   );
-  return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(process.execPath, [script, ...args], {
-      env: { ...process.env, ...env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.once("error", rejectRun);
-    child.once("close", (code) => resolveRun({ code, stdout, stderr }));
-  });
-}
 
-test("CLI dry-run executes from the bundled snapshot without credentials", async () => {
-  const result = await runCli(
+  assert.equal(input.values.video_url, "https://assets.example.test/source.mp4");
+});
+
+test("CLI dry-run uses injected read-only runtime catalog data", async () => {
+  const result = await executeCli(
     [
       "--capability",
       "video_capability_video_text_generation",
@@ -716,21 +846,18 @@ test("CLI dry-run executes from the bundled snapshot without credentials", async
       "--dry-run",
       "--json",
     ],
-    { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
+    createProductionDeps(),
   );
-  assert.equal(result.code, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
+  const output = JSON.parse(formatCliResult(result));
   assert.equal(output.dryRun, true);
   assert.equal(output.request.path, "/v1/videos");
-  assert.match(output.confirmCard, /KaiyunCode 视频 · 待确认/);
+  assert.match(output.confirmCard, /KaiyunCode 视频任务确认/);
   assert.match(output.confirmCard, /omni_flash/);
-  assert.ok(
-    !`${result.stdout}${result.stderr}`.includes("dry-run-must-not-be-read"),
-  );
+  assert.match(output.confirmCard, /预算上限：\$0\.2200/);
 });
 
 test("CLI dry-run default stdout is a human confirmation card", async () => {
-  const result = await runCli(
+  const result = await executeCli(
     [
       "--capability",
       "video_capability_video_text_generation",
@@ -740,12 +867,13 @@ test("CLI dry-run default stdout is a human confirmation card", async () => {
       "CLI dry run card",
       "--dry-run",
     ],
-    { KAIYUN_API_KEY: "dry-run-must-not-be-read" },
+    createProductionDeps(),
   );
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /【KaiyunCode 视频 · 待确认】/);
-  assert.match(result.stdout, /确认提交/);
-  assert.throws(() => JSON.parse(result.stdout));
+  const output = formatCliResult(result);
+  assert.match(output, /【KaiyunCode 视频任务确认】/);
+  assert.match(output, /预算上限：\$0\.2200/);
+  assert.match(output, /确认提交/);
+  assert.throws(() => JSON.parse(output));
 });
 
 
@@ -778,6 +906,7 @@ test("concurrent video jobs submit all before polls complete", async () => {
     await new Promise((r) => setImmediate(r));
   }
   assert.equal(submitCount, 3);
+  assert.equal(deps.calls.catalog, 1);
   assert.equal(pollGates.length, 3);
   for (const release of pollGates) release();
   const results = await pending;
