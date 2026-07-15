@@ -1,11 +1,11 @@
 # KaiyunCode Asynchronous Image API
 
-This reference reflects the bundled, validated intersection of the production
-API tutorial and public adapter catalog. The bundled JSON snapshot is the
-machine-readable authority for request construction only. Every new task uses
-authenticated `GET /v1/models` for current availability and public
-`GET /api/pricing` for current unit prices; neither result falls back to the
-snapshot.
+This reference reflects the validated intersection of the production API
+tutorial and public adapter catalog. Runtime request construction prefers a
+live refresh of that intersection; the bundled JSON snapshot is the offline
+fallback only. Every new task uses authenticated `GET /v1/models` for current
+availability and public `GET /api/pricing` for current unit prices; neither
+availability nor price falls back to the snapshot.
 
 ## Endpoint Allowlist
 
@@ -24,17 +24,19 @@ automatically retried.
 | Capability key | Models | Input profile |
 | --- | --- | --- |
 | `image_text_generation` | `gpt-image-2`, `gpt-image-2-mid-adobe`, `gpt-image-2-high-adobe`, `gemini-3.1-flash-image`, `gemini-3.0-pro-image`, `wan2.7-image-pro` | Required non-empty `prompt` |
-| `image_edit` | Same six public models | Required `prompt` and `image`; protocol is the selected snapshot variant, including JSON generations or URL/file multipart edits |
-| `image_multi_reference` | Same six public models | Required `prompt` and repeated `image_urls[]` |
+| `image_edit` | `gpt-image-2`, `gemini-3.1-flash-image`, `gemini-3.0-pro-image`, `wan2.7-image-pro` | Required `prompt` and `image`; multipart edits with URL scalar or local upload variants |
+| `image_multi_reference` | Same six public models as text generation | Required `prompt` plus references: most models use `image_urls[]`; Adobe mid/high use `image[]` |
 | `image_sequential_generation` | Two Wan profiles under `wan2.7-image-pro` | Required `prompt` and `enable_sequential=true`; the reference profile also requires `image_urls[]` |
 
 `gpt-image-2-max` has been removed from the production public catalog. Tutorial
-residue must not make it selectable.
+residue must not make it selectable. Adobe edit profiles are no longer in the
+public tutorial intersection.
 
 The two sequential Wan profiles share the same capability key and model. The
 runner distinguishes them from their normalized parameter schemas: presence of
 `image_urls[]` selects the reference profile. This is schema selection, not
-protocol inference from a model name.
+protocol inference from a model name. CLI `--image` maps onto the selected
+adapter's documented field (`image_urls[]` or `image[]`).
 
 ## Important Parameters
 
@@ -50,10 +52,14 @@ protocol inference from a model name.
 | `image_size` | Adobe aliases use `1K`, `2K`, or `4K`; do not replace it with `size` |
 | `aspect_ratio` | Use only ratios listed by the selected adapter |
 | `enable_sequential` | Must be `true` for sequential generation |
-| `image_urls[]` | 本机图片、HTTPS URL 或图片 data URL；Wan 参考与参考组图 profile 最多 9 张 |
+| `image_urls[]` / `image[]` | 本机图片、HTTPS URL 或图片 data URL；以选定 adapter 字段名为准；Wan 参考与参考组图 profile 最多 9 张 |
 
 The runner validates the actual parameter table attached to the exact adapter.
 Do not treat this summary as permission to copy a parameter between models.
+
+Runtime request construction prefers a live refresh of the production tutorial
+(`/api/api-tutorial-page` ∩ `/api/chat/public-model-options`). When offline, it
+falls back to the bundled snapshot marked `stale`.
 
 ## Files And URLs
 

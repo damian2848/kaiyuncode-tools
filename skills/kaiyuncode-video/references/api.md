@@ -1,11 +1,11 @@
 # KaiyunCode Asynchronous Video API
 
-This reference reflects the bundled, validated intersection of the production
-API tutorial and public adapter catalog. The bundled JSON snapshot is the
-machine-readable authority for request construction only. Every new task uses
-authenticated `GET /v1/models` for current availability and public
-`GET /api/pricing` for current unit prices; neither result falls back to the
-snapshot.
+This reference reflects the validated intersection of the production API
+tutorial and public adapter catalog. Runtime request construction prefers a
+live refresh of that intersection; the bundled JSON snapshot is the offline
+fallback only. Every new task uses authenticated `GET /v1/models` for current
+availability and public `GET /api/pricing` for current unit prices; neither
+availability nor price falls back to the snapshot.
 
 ## Endpoint Allowlist
 
@@ -29,7 +29,7 @@ automatically retried.
 | `video_capability_video_reference_generation` | HappyHorse r2v, Wan r2v, Omni components | Required prompt plus reference image arrays |
 | `video_capability_video_image_audio_to_video` | `video-pro-720p`, `dreamina-mini` | Required prompt and image; optional/limited audio arrays |
 | `video_capability_video_multimodal_to_video` | `wan2.7-r2v`, `video-pro-720p` | Multimodal image/video/audio combinations |
-| `video_capability_video_recreate` | Omni edit/dewatermark, HappyHorse edit, Wan videoedit | Required source video via `video_url`, `input_video`, `metadata.video`, or `input.media[]`; prompt is profile-dependent |
+| `video_capability_video_recreate` | Omni edit, HappyHorse edit, Wan videoedit | Required source video via `video_url`, `input_video`, `metadata.video`, or `input.media[]`; prompt is profile-dependent |
 
 The runner selects the exact adapter by capability key and model, then by
 normalized parameter schema when a model has multiple profiles. This is schema

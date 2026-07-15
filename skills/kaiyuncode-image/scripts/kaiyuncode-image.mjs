@@ -3,9 +3,10 @@
 import { randomUUID } from "node:crypto";
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
+import { loadProductionCapabilities } from "../../../shared/production-tutorial.mjs";
 import { withConfirmCard } from "../../../shared/confirm-card.mjs";
 import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
 import {
@@ -26,13 +27,80 @@ import {
 } from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
-const CAPABILITIES_URL = new URL(
-  "../../../references/production-capabilities.json",
-  import.meta.url,
+const CAPABILITIES_PATH = fileURLToPath(
+  new URL("../../../references/production-capabilities.json", import.meta.url),
 );
 
-async function loadCapabilities() {
-  return JSON.parse(await readFile(CAPABILITIES_URL, "utf8"));
+async function loadCapabilities(options = {}) {
+  return loadProductionCapabilities({
+    bundledPath: CAPABILITIES_PATH,
+    allowStale: true,
+    ...options,
+  });
+}
+
+function documentedImageInputName(adapter) {
+  const names = new Set(
+    (Array.isArray(adapter?.parameters) ? adapter.parameters : []).map(
+      ({ name }) => name,
+    ),
+  );
+  if (names.has("image[]")) return "image[]";
+  if (names.has("image_urls[]")) return "image_urls[]";
+  if (names.has("image")) return "image";
+  return null;
+}
+
+function selectImageAdapterForInputs(
+  imageCapabilities,
+  capabilityKey,
+  model,
+  images,
+  files,
+) {
+  const capability = imageCapabilities.find(({ key }) => key === capabilityKey);
+  if (!capability) {
+    throw new Error(`Image capability ${capabilityKey} is not available`);
+  }
+  const matches = capability.adapters.filter(
+    (candidate) => candidate.model === model && !RETIRED_MODELS.has(candidate.model),
+  );
+  if (matches.length === 0) {
+    throw new Error(`Image model ${model} is not available for ${capabilityKey}`);
+  }
+  if (matches.length === 1) return matches[0];
+  for (const field of ["image_urls[]", "image[]", "image"]) {
+    const trialValue =
+      field === "image" && images.length === 1 ? images[0] : images;
+    const trial = Object.create(null);
+    trial[field] = trialValue;
+    const accepted = matches.filter((adapter) =>
+      candidateAccepts(adapter, trial, files),
+    );
+    if (accepted.length === 1) return accepted[0];
+  }
+  return matches[0];
+}
+
+function assignImageInputs(values, images, fieldName) {
+  if (!fieldName) {
+    throw new Error("Selected adapter does not document an image input field");
+  }
+  if (fieldName === "image") {
+    if (images.length === 1) {
+      addParam(values, "image", images[0]);
+      return;
+    }
+    if (Object.hasOwn(values, "image")) {
+      throw new Error("CLI parameter image conflicts with repeated --image values");
+    }
+    values.image = images;
+    return;
+  }
+  if (Object.hasOwn(values, fieldName)) {
+    throw new Error(`CLI parameter ${fieldName} conflicts with repeated --image values`);
+  }
+  values[fieldName] = images;
 }
 
 function present(value) {
@@ -658,7 +726,13 @@ async function localFile(path, field, readFileImpl) {
   };
 }
 
-export async function prepareCliInput(parsed, { readFile: readFileImpl = readFile } = {}) {
+export async function prepareCliInput(
+  parsed,
+  {
+    readFile: readFileImpl = readFile,
+    loadCapabilities: loadCapabilitiesImpl = loadCapabilities,
+  } = {},
+) {
   if (parsed?.taskId !== undefined) {
     return {
       taskId: parsed.taskId,
@@ -685,18 +759,20 @@ export async function prepareCliInput(parsed, { readFile: readFileImpl = readFil
       }
     }
     if (parsed.capabilityKey === "image_edit") {
-      if (images.length === 1) addParam(values, "image", images[0]);
-      if (images.length > 1) {
-        if (Object.hasOwn(values, "image")) {
-          throw new Error("CLI parameter image conflicts with repeated --image values");
-        }
-        values.image = images;
-      }
+      assignImageInputs(values, images, "image");
     } else if (
       parsed.capabilityKey === "image_multi_reference" ||
       parsed.capabilityKey === "image_sequential_generation"
     ) {
-      addParam(values, "image_urls[]", images);
+      const snapshot = await loadCapabilitiesImpl();
+      const adapter = selectImageAdapterForInputs(
+        snapshot.imageCapabilities,
+        parsed.capabilityKey,
+        parsed.model,
+        images,
+        files,
+      );
+      assignImageInputs(values, images, documentedImageInputName(adapter));
     } else {
       throw new Error(`${parsed.capabilityKey} does not document --image input`);
     }

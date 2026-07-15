@@ -87,7 +87,7 @@ node <skill-dir>/scripts/kaiyuncode-image.mjs \
 
 ## Stop Conditions
 
-- Stop if validation fails, the adapter/profile is absent from the production snapshot, or the model is absent from runtime `GET /v1/models`.
+- Stop if validation fails, the adapter/profile is absent from the live/bundled production tutorial intersection, or the model is absent from runtime `GET /v1/models`.
 - Treat `/api/pricing` as the only price source. Never fall back to a snapshot price; a paid POST must stop when pricing is missing.
 - Never automatically retry a paid POST timeout / 429 / 5xx.
 - Do not run real paid requests just to test; use dry-run or mocks.

@@ -19,7 +19,19 @@ npm run sync:tutorial   # 刷新生产教程快照（需网络）
 npm run validate
 ```
 
-## 安装（Codex 个人 marketplace）
+## 一键安装（推荐）
+
+macOS / Linux 终端执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash
+```
+
+该命令会把插件安装或更新到 `~/plugins/kaiyuncode-tools`，安全注册到 Codex 个人 marketplace，并验证安装结果。检测到本地修改、仓库来源不符或 marketplace 条目冲突时会停止，不会覆盖现有内容。
+
+安装完成后，请新建 Codex 对话，让新插件生效。
+
+## 手动安装（Codex 个人 marketplace）
 
 1. 将本仓库放到 `~/plugins/kaiyuncode-tools`，或在 `~/.agents/plugins/marketplace.json` 中指向本地路径。
 2. 执行：
@@ -98,7 +110,7 @@ Agent 必须把确认卡贴进聊天，等用户「确认提交」后再去掉 `
 - 聊天框粘贴 API Key 是默认且推荐的录入方式。
 - API Key 不要写进命令行参数或提交到仓库；回复中不要回显完整 Key。
 - 付费图片 / 视频请求必须先 dry-run 确认卡，再取得用户明确授权后提交。
-- 仓库不含真实密钥；`references/production-capabilities.json` 是公开生产教程的已验证请求结构快照。
+- 仓库不含真实密钥；`references/production-capabilities.json` 是公开生产教程的已验证请求结构快照。运行时优先联网刷新教程适配器，离线时才回退该快照。
 
 ## 许可证
 

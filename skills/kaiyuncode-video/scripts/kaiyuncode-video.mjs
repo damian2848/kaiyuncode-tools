@@ -3,9 +3,10 @@
 import { randomUUID } from "node:crypto";
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { buildAdapterRequest } from "../../../shared/adapter-request.mjs";
+import { loadProductionCapabilities } from "../../../shared/production-tutorial.mjs";
 import { withConfirmCard } from "../../../shared/confirm-card.mjs";
 import { runConcurrentTasks } from "../../../shared/concurrent-tasks.mjs";
 import {
@@ -26,13 +27,16 @@ import {
 } from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
-const CAPABILITIES_URL = new URL(
-  "../../../references/production-capabilities.json",
-  import.meta.url,
+const CAPABILITIES_PATH = fileURLToPath(
+  new URL("../../../references/production-capabilities.json", import.meta.url),
 );
 
-async function loadCapabilities() {
-  return JSON.parse(await readFile(CAPABILITIES_URL, "utf8"));
+async function loadCapabilities(options = {}) {
+  return loadProductionCapabilities({
+    bundledPath: CAPABILITIES_PATH,
+    allowStale: true,
+    ...options,
+  });
 }
 
 function present(value) {
@@ -895,8 +899,12 @@ function applyRemoteVideos(capabilityKey, names, values, videos) {
   throw new Error("Selected adapter does not document --video input");
 }
 
-async function loadAdapterForCli(capabilityKey, model) {
-  const capabilities = await loadCapabilities();
+async function loadAdapterForCli(
+  capabilityKey,
+  model,
+  loadCapabilitiesImpl = loadCapabilities,
+) {
+  const capabilities = await loadCapabilitiesImpl();
   const capability = capabilities.videoCapabilities.find(
     ({ key }) => key === capabilityKey,
   );
@@ -912,7 +920,10 @@ async function loadAdapterForCli(capabilityKey, model) {
 
 export async function prepareCliInput(
   parsed,
-  { readFile: readFileImpl = readFile } = {},
+  {
+    readFile: readFileImpl = readFile,
+    loadCapabilities: loadCapabilitiesImpl = loadCapabilities,
+  } = {},
 ) {
   if (parsed?.taskId !== undefined) {
     return {
@@ -959,7 +970,11 @@ export async function prepareCliInput(
   }
 
   if (images.length > 0 || audios.length > 0 || videos.length > 0) {
-    const adapter = await loadAdapterForCli(parsed.capabilityKey, parsed.model);
+    const adapter = await loadAdapterForCli(
+      parsed.capabilityKey,
+      parsed.model,
+      loadCapabilitiesImpl,
+    );
     const names = parameterNames(adapter);
     applyRemoteImages(parsed.capabilityKey, names, values, images);
     applyRemoteVideos(parsed.capabilityKey, names, values, videos);

@@ -167,7 +167,7 @@ function requiredValue(parameter) {
   if (parameter.defaultValue !== "-") return parameter.defaultValue;
   if (parameter.name === "prompt") return "test image prompt";
   if (parameter.name === "image") return "https://assets.example.test/input.png";
-  if (parameter.name === "image_urls[]") {
+  if (parameter.name === "image_urls[]" || parameter.name === "image[]") {
     return [
       "https://assets.example.test/reference-1.png",
       "https://assets.example.test/reference-2.png",
@@ -228,7 +228,7 @@ test("every bundled public image adapter in all four capabilities has an async d
       dryRuns += 1;
     }
   }
-  assert.equal(dryRuns, 20);
+  assert.equal(dryRuns, 18);
 });
 
 test("adapter selection requires an exact capability key and model pair", async () => {
@@ -351,13 +351,15 @@ for (const [name, capabilityKey, model, values] of [
 }
 
 function allLegalAdapterValues(adapter) {
+  const references = [
+    "https://assets.example.test/one.png",
+    "https://assets.example.test/two.png",
+  ];
   const explicit = {
     prompt: "legal production prompt",
     image: "https://assets.example.test/input.png",
-    "image_urls[]": [
-      "https://assets.example.test/one.png",
-      "https://assets.example.test/two.png",
-    ],
+    "image_urls[]": references,
+    "image[]": references,
     mask: "https://assets.example.test/mask.png",
     output_format: "png",
     output_compression: 50,
@@ -379,7 +381,7 @@ function allLegalAdapterValues(adapter) {
   );
 }
 
-test("deterministic constraints accept legal values for all 20 production image adapters", async () => {
+test("deterministic constraints accept legal values for all 18 production image adapters", async () => {
   let count = 0;
   for (const capability of productionCapabilities.imageCapabilities) {
     for (const adapter of capability.adapters) {
@@ -397,7 +399,7 @@ test("deterministic constraints accept legal values for all 20 production image 
       count += 1;
     }
   }
-  assert.equal(count, 20);
+  assert.equal(count, 18);
 });
 
 function customConstraintDeps(range, defaultValue = "-") {
@@ -768,7 +770,10 @@ test("CLI accepts local files for gpt-image-2 multi-reference and names them in 
       "--image", "/private/DSC01014.JPG",
       "--dry-run",
     ]),
-    { readFile: async (path) => Buffer.from(path) },
+    {
+      readFile: async (path) => Buffer.from(path),
+      loadCapabilities: async () => productionCapabilities,
+    },
   );
 
   assert.equal(input.values["image_urls[]"].length, 2);
@@ -784,6 +789,37 @@ test("CLI accepts local files for gpt-image-2 multi-reference and names them in 
   assert.ok(!JSON.stringify(result.request).includes("data:image"));
   const card = withConfirmCard(result, { kind: "image" }).confirmCard;
   assert.match(card, /参考图 2 张（DSC01013\.JPG.*DSC01014\.JPG/);
+});
+
+test("CLI maps Adobe multi-reference images onto documented image[] field", async () => {
+  const input = await prepareCliInput(
+    parseCliArguments([
+      "--capability", "image_multi_reference",
+      "--model", "gpt-image-2-mid-adobe",
+      "--prompt", "compose adobe references",
+      "--image", "https://assets.example.test/a.png",
+      "--image", "https://assets.example.test/b.png",
+      "--dry-run",
+    ]),
+    { loadCapabilities: async () => productionCapabilities },
+  );
+
+  assert.equal(input.values["image_urls[]"], undefined);
+  assert.deepEqual(input.values["image[]"], [
+    "https://assets.example.test/a.png",
+    "https://assets.example.test/b.png",
+  ]);
+
+  const result = await runImageTask({ ...input, dependencies: createProductionDeps() });
+  assert.equal(result.request.path, "/v1/images/async/generations");
+  const body =
+    typeof result.request.body === "string"
+      ? JSON.parse(result.request.body)
+      : result.request.body;
+  assert.deepEqual(body.image, [
+    "https://assets.example.test/a.png",
+    "https://assets.example.test/b.png",
+  ]);
 });
 
 test("CLI preserves repeated remote Wan edit images in order", async () => {

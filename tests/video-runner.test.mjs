@@ -321,7 +321,7 @@ test("every bundled public video adapter in all eight capabilities has an async 
       dryRuns += 1;
     }
   }
-  assert.equal(dryRuns, 34);
+  assert.equal(dryRuns, 33);
 });
 
 test("adapter selection requires an exact capability key and model pair", async () => {
@@ -847,20 +847,21 @@ test("CLI maps remote image lists onto adapter array fields", async () => {
   assert.equal(input.values.prompt, "refs");
 });
 
-test("CLI maps one remote video onto a documented video_url field", async () => {
+test("CLI maps one remote video onto a documented input_video field", async () => {
   const input = await prepareCliInput(
     parseCliArguments([
       "--capability",
       "video_capability_video_recreate",
       "--model",
-      "veo-omni-flash-dewatermark",
+      "omni_flash_edit",
       "--video",
       "https://assets.example.test/source.mp4",
       "--dry-run",
     ]),
+    { loadCapabilities: async () => productionCapabilities },
   );
 
-  assert.equal(input.values.video_url, "https://assets.example.test/source.mp4");
+  assert.equal(input.values.input_video, "https://assets.example.test/source.mp4");
 });
 
 test("CLI dry-run uses injected read-only runtime catalog data", async () => {
