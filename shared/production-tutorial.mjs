@@ -273,7 +273,8 @@ function normalizeAdapter(item, step, publicModelKeys) {
         typeof block?.label === "string" &&
         block.label.toLowerCase().startsWith("curl"),
     );
-  if (!hasParameters && !claimsCurl) return null;
+  // Tutorial flow and polling steps can have parameter metadata but no submit request.
+  if (!claimsCurl) return null;
 
   const parameters = step?.parameters;
   if (

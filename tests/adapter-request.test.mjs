@@ -200,23 +200,25 @@ test("real Kling JSON adapters preserve template aliases while overlaying user v
   assert.equal(body.parameters.mode, "std");
 });
 
-test("real Omni multipart adapters derive prompt from messages and preserve literals", () => {
+test("real Wan multipart adapters map nested prompt and documented image upload", () => {
   const adapter = productionAdapter(
-    "video_capability_video_recreate",
-    "omni_flash_edit",
+    "video_capability_video_image_to_video",
+    "wan2.7-i2v",
   );
   const request = buildAdapterRequest(
     adapter,
     {
-      "messages[]": [{ role: "user", content: "custom recreation prompt" }],
-      input_video: "/tmp/source.mp4",
+      "input.prompt": "custom animation prompt",
+      "input.media[]": [
+        { type: "first_frame", url: "/tmp/source.png" },
+      ],
     },
-    [{ field: "video", data: new Blob(["clip"]), filename: "source.mp4" }],
+    [{ field: "image", data: new Blob(["pixels"]), filename: "source.png" }],
   );
 
-  assert.equal(request.body.get("prompt"), "custom recreation prompt");
-  assert.equal(request.body.get("resolution"), "720p");
-  assert.equal(request.body.get("video").name, "source.mp4");
+  assert.equal(request.body.get("prompt"), "custom animation prompt");
+  assert.equal(request.body.get("resolution"), "720P");
+  assert.equal(request.body.get("image").name, "source.png");
 });
 
 for (const maliciousName of [
@@ -292,7 +294,11 @@ test("adapter parameter types accept and normalize valid scalar and array values
       { name: "integer", type: "integer", defaultValue: "-" },
       { name: "boolean", type: "boolean", defaultValue: "-" },
       { name: "strings[]", type: "string[]", defaultValue: "-" },
+      { name: "fileStrings[]", type: "string[] | file", defaultValue: "-" },
       { name: "objects[]", type: "object[]", defaultValue: "-" },
+      { name: "fileObjects[]", type: "object[] | file", defaultValue: "-" },
+      { name: "object", type: "object", defaultValue: "-" },
+      { name: "array", type: "array", defaultValue: "-" },
       {
         name: "custom[]",
         type: "Array<{ type: string; text?: string }>",
@@ -309,7 +315,11 @@ test("adapter parameter types accept and normalize valid scalar and array values
       integer: "2",
       boolean: "false",
       "strings[]": ["one", "two"],
+      "fileStrings[]": ["three"],
       "objects[]": [{ value: 1 }],
+      "fileObjects[]": [{ value: 2 }],
+      object: { value: 3 },
+      array: ["four"],
       "custom[]": [{ type: "text", text: "hello" }],
     }).body,
   );
@@ -318,16 +328,23 @@ test("adapter parameter types accept and normalize valid scalar and array values
   assert.equal(body.integer, 2);
   assert.equal(body.boolean, false);
   assert.deepEqual(body.strings, ["one", "two"]);
+  assert.deepEqual(body.fileStrings, ["three"]);
   assert.deepEqual(body.objects, [{ value: 1 }]);
+  assert.deepEqual(body.fileObjects, [{ value: 2 }]);
+  assert.deepEqual(body.object, { value: 3 });
+  assert.deepEqual(body.array, ["four"]);
   assert.deepEqual(body.custom, [{ type: "text", text: "hello" }]);
 });
 
 test("real multipart adapters preserve repeated documented upload fields", () => {
   const adapter = productionAdapter(
-    "video_capability_video_reference_generation",
-    "happyhorse-1.0-r2v",
+    "video_capability_video_multi_image_generation",
+    "omni-flash",
   );
-  const request = buildAdapterRequest(adapter, { prompt: "reference prompt" }, [
+  const request = buildAdapterRequest(adapter, {
+    prompt: "reference prompt",
+    "image_urls[]": ["/tmp/one.png", "/tmp/two.png"],
+  }, [
     { field: "images", data: new Blob(["one"]), filename: "one.png" },
     { field: "images", data: new Blob(["two"]), filename: "two.png" },
   ]);
@@ -336,102 +353,6 @@ test("real multipart adapters preserve repeated documented upload fields", () =>
   assert.deepEqual(
     request.body.getAll("images").map((file) => file.name),
     ["one.png", "two.png"],
-  );
-});
-
-for (const model of [
-  "gpt-image-2",
-  "gemini-3.1-flash-image",
-  "gemini-3.0-pro-image",
-  "wan2.7-image-pro",
-]) {
-  test(`real ${model} image edit selects its documented local-upload variant`, () => {
-    const adapter = productionAdapter("image_edit", model);
-    const files =
-      model === "wan2.7-image-pro"
-        ? [
-            { field: "image", data: new Blob(["car"]), filename: "car.png" },
-            { field: "image", data: new Blob(["paint"]), filename: "paint.png" },
-          ]
-        : [{ field: "image", data: new Blob(["input"]), filename: "input.png" }];
-    const request = buildAdapterRequest(
-      adapter,
-      { prompt: "local edit", image: "/tmp/input.png" },
-      files,
-    );
-    const images = request.body.getAll("image");
-
-    assert.equal(images.length, files.length);
-    assert.ok(images.every((image) => image instanceof Blob));
-    assert.deepEqual(
-      images.map((image) => image.name),
-      files.map((file) => file.filename),
-    );
-  });
-}
-
-for (const model of [
-  "gpt-image-2",
-  "gemini-3.1-flash-image",
-  "gemini-3.0-pro-image",
-  "wan2.7-image-pro",
-]) {
-  test(`real ${model} image edit selects its URL-scalar variant without files`, () => {
-    const adapter = productionAdapter("image_edit", model);
-    const url = "https://assets.example.test/input.png";
-    const request = buildAdapterRequest(adapter, {
-      prompt: "URL edit",
-      image: url,
-    });
-    const images = request.body.getAll("image");
-
-    assert.equal(images.length, 1);
-    assert.ok(images.every((image) => image === url));
-  });
-}
-
-test("real Wan edit sends one scalar URL exactly once", () => {
-  const adapter = productionAdapter("image_edit", "wan2.7-image-pro");
-  const request = buildAdapterRequest(adapter, {
-    prompt: "URL edit",
-    image: "https://assets.example.test/input.png",
-  });
-
-  assert.deepEqual(request.body.getAll("image"), [
-    "https://assets.example.test/input.png",
-  ]);
-});
-
-test("real Wan edit preserves distinct repeated remote image URLs in order", () => {
-  const adapter = productionAdapter("image_edit", "wan2.7-image-pro");
-  const request = buildAdapterRequest(adapter, {
-    prompt: "URL edit",
-    image: [
-      "https://assets.example.test/car.png",
-      "https://assets.example.test/paint.png",
-    ],
-  });
-
-  assert.deepEqual(request.body.getAll("image"), [
-    "https://assets.example.test/car.png",
-    "https://assets.example.test/paint.png",
-  ]);
-});
-
-test("real Wan edit maps repeated upload placeholders to each file exactly once", () => {
-  const adapter = productionAdapter("image_edit", "wan2.7-image-pro");
-  const request = buildAdapterRequest(
-    adapter,
-    { prompt: "upload edit", image: "/tmp/car.png" },
-    [
-      { field: "image", data: new Blob(["car"]), filename: "car.png" },
-      { field: "image", data: new Blob(["paint"]), filename: "paint.png" },
-    ],
-  );
-
-  assert.deepEqual(
-    request.body.getAll("image").map((image) => image.name),
-    ["car.png", "paint.png"],
   );
 });
 

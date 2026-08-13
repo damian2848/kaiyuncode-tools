@@ -53,7 +53,7 @@ KAIYUN_API_KEY='...' node <skill-dir>/../kaiyuncode-configure-agents/scripts/sav
 
 ```bash
 node <skill-dir>/scripts/kaiyuncode-image.mjs \
-  --list-models --capability image_text_generation
+  --list-models --capability image_async_text_generation
 ```
 
 用户只问模型或费用时，到这里即可。不要强迫进入生成流程。
@@ -62,8 +62,8 @@ node <skill-dir>/scripts/kaiyuncode-image.mjs \
 
 ```bash
 node <skill-dir>/scripts/kaiyuncode-image.mjs \
-  --capability image_text_generation \
-  --model gpt-image-2 \
+  --capability image_async_text_generation \
+  --model gemini-3.1-flash-image \
   --prompt "A clean product photo" \
   --output ./result.png \
   --dry-run

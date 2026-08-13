@@ -231,6 +231,14 @@ function collectResources(flat, localResources = []) {
     const type = RESOURCE_TYPES[resource?.type] ? resource.type : null;
     if (!type) continue;
     const items = groups.get(type) ?? [];
+    const localLabel = formatMediaValue({
+      type: "File",
+      name: resource.name,
+      size: resource.size,
+    });
+    // Multipart FormData already contains this file; localResources is a
+    // fallback for inline media whose source bytes have been redacted.
+    if (localLabel && items.includes(localLabel)) continue;
     const placeholder = items.findIndex(
       (item) => item === "data-url" || item === "[REDACTED BASE64]",
     );

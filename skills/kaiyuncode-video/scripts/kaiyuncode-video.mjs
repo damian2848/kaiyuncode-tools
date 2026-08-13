@@ -59,9 +59,11 @@ function fileSatisfies(parameter, files) {
 function missingRequired(adapter, values, files) {
   return adapter.parameters.filter((parameter) => {
     if (!parameter.required || parameter.name === "model") return false;
+    // Tutorial defaults can contain illustrative prompts and example.com media.
+    // Required task inputs must always come from the caller or a matching upload.
     const value = Object.hasOwn(values, parameter.name)
       ? values[parameter.name]
-      : parameter.defaultValue;
+      : undefined;
     return !requiredPresent(value) && !fileSatisfies(parameter, files);
   });
 }
@@ -114,6 +116,14 @@ function findAdapter(videoCapabilities, capabilityKey, model, values, files) {
 }
 
 function asValues(value) {
+  if (typeof value === "string" && value.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // The value is validated later by the adapter type coercion.
+    }
+  }
   return Array.isArray(value) ? value : [value];
 }
 
@@ -131,30 +141,40 @@ function isPublicHttpsOrDataUrl(item) {
 }
 
 function validateRemoteMedia(parameter, value, files) {
+  const parameterType = String(parameter.type ?? "").replace(
+    /\s*\|\s*file$/u,
+    "",
+  );
   if (
-    parameter.type === "boolean" ||
-    parameter.type === "number" ||
-    parameter.type === "integer"
+    parameterType === "boolean" ||
+    parameterType === "number" ||
+    parameterType === "integer"
   ) {
     return;
   }
   const text = `${parameter.range ?? ""} ${parameter.description ?? ""} ${parameter.type ?? ""}`;
   const documentsUrl = /URL|公网/iu.test(text);
   const objectMedia =
-    parameter.type === "object[]" ||
-    /^Array<\{/u.test(parameter.type ?? "") ||
+    parameterType === "object" ||
+    parameterType === "object[]" ||
+    /^Array<\{/u.test(parameterType) ||
     /media\[\]$/u.test(parameter.name);
   const scalarMediaName =
-    /(?:^|[.])(?:image|image_url|images\[\]|input_video|video_url|mask|reference_image_urls\[\]|extra_images\[\]|extra_videos\[\]|extra_audios\[\]|audio_urls\[\]|image_urls\[\])$/iu.test(
+    /(?:^|[.])(?:image|image_url|images\[\]|input_video|video_url|mask|reference_image_urls\[\]|reference_images|extra_images(?:\[\])?|extra_videos(?:\[\])?|extra_audios(?:\[\])?|audio_urls\[\]|image_urls\[\])$/iu.test(
       parameter.name,
     );
   if (!documentsUrl && !objectMedia && !scalarMediaName) return;
 
-  if (parameter.type === "object[]" || /^Array<\{/u.test(parameter.type ?? "")) {
-    for (const item of asValues(value)) {
+  if (
+    parameterType === "object" ||
+    parameterType === "object[]" ||
+    /^Array<\{/u.test(parameterType)
+  ) {
+    for (const item of parameterType === "object" ? [value] : asValues(value)) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       for (const [key, child] of Object.entries(item)) {
         if (typeof child !== "string") continue;
+        if (/(?:^|_)id$/iu.test(key)) continue;
         if (!/(?:url|image|video|audio|voice|file)/iu.test(key)) continue;
         if (isPublicHttpsOrDataUrl(child)) continue;
         if (fileSatisfies(parameter, files)) continue;
@@ -780,9 +800,9 @@ function chooseArrayField(names, candidates) {
 
 function applyRemoteImages(capabilityKey, names, values, images) {
   if (images.length === 0) return;
-  if (names.has("image_url") && names.has("extra_images[]")) {
+  if (names.has("image_url") && names.has("extra_images")) {
     addParam(values, "image_url", images[0]);
-    if (images.length > 1) addParam(values, "extra_images[]", images.slice(1));
+    if (images.length > 1) addParam(values, "extra_images", images.slice(1));
     return;
   }
   if (names.has("image_url") && names.has("images[]")) {
@@ -798,9 +818,18 @@ function applyRemoteImages(capabilityKey, names, values, images) {
     addParam(values, "image", images[0]);
     return;
   }
+  if (names.has("input_reference") && images.length === 1) {
+    addParam(values, "input_reference", { image_url: images[0] });
+    return;
+  }
+  if (names.has("reference_images")) {
+    addParam(values, "reference_images", images.map((url) => ({ url })));
+    return;
+  }
   const arrayField = chooseArrayField(names, [
     "reference_image_urls[]",
     "images[]",
+    "extra_images",
     "extra_images[]",
     "image_urls[]",
   ]);
@@ -835,9 +864,47 @@ function applyRemoteImages(capabilityKey, names, values, images) {
   throw new Error(`${capabilityKey} does not document --image input`);
 }
 
+function documentedUploadFields(adapter) {
+  return (adapter.requestVariants ?? [])
+    .filter((variant) => variant.kind === "multipart")
+    .flatMap((variant) => variant.fields ?? [])
+    .filter(({ value }) => typeof value === "string" && value.startsWith("@"))
+    .map(({ name }) => name);
+}
+
+function uploadFieldForKind(fields, kind, index) {
+  const expression =
+    kind === "image"
+      ? /image/iu
+      : kind === "video"
+        ? /video/iu
+        : /audio|voice/iu;
+  const matches = fields.filter((field) => expression.test(field));
+  if (matches.length === 0) return null;
+  return matches[Math.min(index, matches.length - 1)];
+}
+
+function mapLocalFilesToUploads(adapter, files) {
+  const fields = documentedUploadFields(adapter);
+  if (fields.length === 0) return;
+  const counts = new Map();
+  for (const file of files) {
+    const index = counts.get(file.kind) ?? 0;
+    const field = uploadFieldForKind(fields, file.kind, index);
+    if (!field) continue;
+    file.field = field;
+    file.inline = false;
+    counts.set(file.kind, index + 1);
+  }
+}
+
 function applyRemoteAudios(names, values, audios) {
   if (audios.length === 0) return;
-  const field = chooseArrayField(names, ["extra_audios[]", "audio_urls[]"]);
+  const field = chooseArrayField(names, [
+    "extra_audios",
+    "extra_audios[]",
+    "audio_urls[]",
+  ]);
   if (field) {
     addParam(values, field, audios);
     return;
@@ -874,6 +941,10 @@ function applyRemoteVideos(capabilityKey, names, values, videos) {
   }
   if (names.has("metadata.video") && videos.length === 1) {
     addParam(values, "metadata.video", videos[0]);
+    return;
+  }
+  if (names.has("extra_videos")) {
+    addParam(values, "extra_videos", videos);
     return;
   }
   if (names.has("extra_videos[]")) {
@@ -944,6 +1015,17 @@ export async function prepareCliInput(
   const audios = [];
   const videos = [];
 
+  const adapter =
+    (parsed.images?.length ?? 0) > 0 ||
+    (parsed.audios?.length ?? 0) > 0 ||
+    (parsed.videos?.length ?? 0) > 0
+      ? await loadAdapterForCli(
+          parsed.capabilityKey,
+          parsed.model,
+          loadCapabilitiesImpl,
+        )
+      : null;
+
   for (const image of parsed.images ?? []) {
     if (mediaIsRemote(image)) images.push(image);
     else {
@@ -969,16 +1051,12 @@ export async function prepareCliInput(
     }
   }
 
-  if (images.length > 0 || audios.length > 0 || videos.length > 0) {
-    const adapter = await loadAdapterForCli(
-      parsed.capabilityKey,
-      parsed.model,
-      loadCapabilitiesImpl,
-    );
+  if (adapter) {
     const names = parameterNames(adapter);
     applyRemoteImages(parsed.capabilityKey, names, values, images);
     applyRemoteVideos(parsed.capabilityKey, names, values, videos);
     applyRemoteAudios(names, values, audios);
+    mapLocalFilesToUploads(adapter, files);
   }
 
   return {

@@ -1,6 +1,6 @@
 ---
 name: kaiyuncode-video
-description: "使用 KaiyunCode 异步视频模型完成文生视频、图生视频、首尾帧、续写、参考、多模态或视频复刻，并完成实时模型与价格发现、提示词和素材准备、预算确认、异步提交、结果保存及迭代。用户已经明确要创作视频时使用；跨图片/视频或需要从模糊想法开始全流程引导时优先使用 kaiyuncode-create。"
+description: "使用 KaiyunCode 异步视频模型完成文生视频、图生视频、多图参考、首尾帧、分镜、参考素材或视频复刻，并完成实时模型与价格发现、提示词和素材准备、预算确认、异步提交、结果保存及迭代。用户已经明确要创作视频时使用；跨图片/视频或需要从模糊想法开始全流程引导时优先使用 kaiyuncode-create。"
 ---
 
 # KaiyunCode Video
@@ -44,7 +44,7 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs ... --credential-source file
 
 ## Workflow
 
-1. 从用户目标判断文生、图生、首尾帧、续写、参考、多模态或复刻；先确认用途、画幅、时长和已有素材，不要求用户提供 capability 名称。
+1. 从用户目标判断文生、图生、多图参考、首尾帧、分镜、参考素材或复刻；先确认用途、画幅、时长和已有素材，不要求用户提供 capability 名称。
 2. 映射到 [production adapter reference](references/api.md) 中的 capability，然后运行 `--list-models --capability KEY` 获取当前模型与实时价格。
 3. 只从返回结果中给出最多 3 个候选，优先推荐 1 个；说明单价、适用理由和所需素材。没有依据时不要编造质量或速度差异。
 4. 整理最终提示词、素材、关键参数和输出路径，只收集选定适配器缺少的必填字段。
@@ -69,7 +69,7 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs \
 # 默认输出确认卡（给用户看）
 node <skill-dir>/scripts/kaiyuncode-video.mjs \
   --capability video_capability_video_text_generation \
-  --model omni_flash \
+  --model omni-flash \
   --prompt "A calm coastal drone shot at golden hour" \
   --output ./result.mp4 \
   --dry-run

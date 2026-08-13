@@ -12,7 +12,6 @@ availability nor price falls back to the snapshot.
 | Purpose | Method | Path |
 | --- | --- | --- |
 | Generate | POST | `/v1/images/async/generations` |
-| Edit | POST | `/v1/images/async/edits` |
 | Poll | GET | `/v1/images/async/{task_id}` |
 
 There is no synchronous image interface. A POST returns `task_id` or `id`; the
@@ -23,19 +22,12 @@ automatically retried.
 
 | Capability key | Models | Input profile |
 | --- | --- | --- |
-| `image_text_generation` | `gpt-image-2`, `gpt-image-2-mid-adobe`, `gpt-image-2-high-adobe`, `gemini-3.1-flash-image`, `gemini-3.0-pro-image`, `wan2.7-image-pro` | Required non-empty `prompt` |
-| `image_edit` | `gpt-image-2`, `gemini-3.1-flash-image`, `gemini-3.0-pro-image`, `wan2.7-image-pro` | Required `prompt` and `image`; multipart edits with URL scalar or local upload variants |
-| `image_multi_reference` | Same six public models as text generation | Required `prompt` plus references: most models use `image_urls[]`; Adobe mid/high use `image[]` |
-| `image_sequential_generation` | Two Wan profiles under `wan2.7-image-pro` | Required `prompt` and `enable_sequential=true`; the reference profile also requires `image_urls[]` |
+| `image_async_text_generation` | `gpt-image-2-mid-adobe`, `gpt-image-2-high-adobe`, `gemini-3.1-flash-lite-image`, `gemini-3.1-flash-image`, `gemini-3.0-pro-image` | Required non-empty `prompt` |
+| `image_async_multi_reference` | Same five public models | Required `prompt` plus references: Gemini profiles use `image_urls[]`; Adobe mid/high use `image[]` |
 
-`gpt-image-2-max` has been removed from the production public catalog. Tutorial
-residue must not make it selectable. Adobe edit profiles are no longer in the
-public tutorial intersection.
-
-The two sequential Wan profiles share the same capability key and model. The
-runner distinguishes them from their normalized parameter schemas: presence of
-`image_urls[]` selects the reference profile. This is schema selection, not
-protocol inference from a model name. CLI `--image` maps onto the selected
+The current tutorial has no public image-edit or sequential-generation adapter.
+The legacy `image_text_generation` and `image_multi_reference` CLI keys remain
+aliases for the two current keys. CLI `--image` maps onto the selected
 adapter's documented field (`image_urls[]` or `image[]`).
 
 ## Important Parameters
@@ -43,16 +35,11 @@ adapter's documented field (`image_urls[]` or `image[]`).
 | Parameter | Production constraints |
 | --- | --- |
 | `prompt` | Required non-empty string |
-| `n` | Most profiles document 1; Wan regular generation documents 1-4; Wan sequential generation allows at most 12 |
-| `output_format` | `png`, `jpeg`, or `webp` |
-| `output_compression` | 0-100 |
-| `response_format` | `url` or `b64_json` |
-| `background` | `opaque`, `auto`, or `transparent` |
-| `moderation` | `auto` or `low` |
-| `image_size` | Adobe aliases use `1K`, `2K`, or `4K`; do not replace it with `size` |
+| `n` | Use only the count range documented by the selected model |
+| `output_format` | Adobe profiles document `png`, `jpeg`, or `webp` |
+| `image_size` | Use only the model-specific values from the adapter; Adobe profiles use `1K`, `2K`, or `4K` |
 | `aspect_ratio` | Use only ratios listed by the selected adapter |
-| `enable_sequential` | Must be `true` for sequential generation |
-| `image_urls[]` / `image[]` | 本机图片、HTTPS URL 或图片 data URL；以选定 adapter 字段名为准；Wan 参考与参考组图 profile 最多 9 张 |
+| `image_urls[]` / `image[]` | 本机图片、HTTPS URL 或图片 data URL；以选定 adapter 字段名为准 |
 
 The runner validates the actual parameter table attached to the exact adapter.
 Do not treat this summary as permission to copy a parameter between models.
@@ -63,10 +50,10 @@ falls back to the bundled snapshot marked `stale`.
 
 ## Files And URLs
 
-- `--image` 和 `--mask` 都接受本机文件路径；Runner 会读取文件并封装为媒体负载，KaiyunCode 负责转存为上游需要的公网资源。
-- 多图参考、组图、编辑和蒙版都不要求用户自行准备公网 URL；`--image` 可重复使用并保留输入顺序。
+- `--image` 接受本机文件路径；Runner 会读取文件并封装为媒体负载，KaiyunCode 负责转存为上游需要的公网资源。
+- 多图参考不要求用户自行准备公网 URL；`--image` 可重复使用并保留输入顺序。
 - 用户主动提供远程资源时必须使用无内嵌凭据的 HTTPS URL；也支持图片 data URL。
-- 直接调用底层 `values` 时不能只放一个本机路径字符串，因为服务端无法读取调用方文件系统；应通过 `--image`、`--mask` 或 jobs 的 `images`、`mask` 字段交给 Runner 读取。
+- 直接调用底层 `values` 时不能只放一个本机路径字符串，因为服务端无法读取调用方文件系统；应通过 `--image` 或 jobs 的 `images` 字段交给 Runner 读取。
 - Dry-run summaries contain only safe file metadata such as a basename, never the file contents or full local directory.
 
 ## CLI
@@ -77,7 +64,6 @@ falls back to the bundled snapshot marked `stale`.
 --prompt TEXT          Image prompt
 --param KEY=VALUE      Repeat for adapter parameters
 --image URL_OR_PATH    Repeat for local files or remote references
---mask URL_OR_PATH     Edit mask
 --task-id ID           Resume polling without a POST
 --output PATH          Result destination
 --credential-source S  Prefer env|file|codex|claude for this run

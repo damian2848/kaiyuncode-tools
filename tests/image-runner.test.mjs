@@ -33,12 +33,12 @@ function createImageDeps() {
     loadCapabilities: async () => ({
       imageCapabilities: [
         {
-          key: "image_text_generation",
+          key: "image_async_text_generation",
           adapters: [
             {
-              model: "gpt-image-2",
+              model: "gpt-image-2-mid-adobe",
               parameters: [
-                { name: "model", type: "string", required: true, defaultValue: "gpt-image-2", range: "gpt-image-2" },
+                { name: "model", type: "string", required: true, defaultValue: "gpt-image-2-mid-adobe", range: "gpt-image-2-mid-adobe" },
                 { name: "prompt", type: "string", required: true, defaultValue: "-", range: "非空文本" },
               ],
               requestVariants: [
@@ -46,7 +46,7 @@ function createImageDeps() {
                   method: "POST",
                   path: "/v1/images/async/generations",
                   kind: "json",
-                  template: { model: "gpt-image-2" },
+                  template: { model: "gpt-image-2-mid-adobe" },
                 },
               ],
             },
@@ -65,7 +65,7 @@ function createImageDeps() {
           capability.adapters.map(({ model }) => model),
         ),
       );
-      models.add("gpt-image-2");
+      models.add("gpt-image-2-mid-adobe");
       models.add("name-looks-like-edit");
       models.add("constraint-model");
       return {
@@ -73,7 +73,7 @@ function createImageDeps() {
         priceLabels: new Map(
           [...models].map((model) => [
             model,
-            model === "gpt-image-2" ? "$0.0150/次" : "$0.1000/次",
+            model === "gpt-image-2-mid-adobe" ? "$0.0150/次" : "$0.1000/次",
           ]),
         ),
       };
@@ -94,8 +94,8 @@ function createImageDeps() {
 }
 
 const baseInput = {
-  capabilityKey: "image_text_generation",
-  model: "gpt-image-2",
+  capabilityKey: "image_async_text_generation",
+  model: "gpt-image-2-mid-adobe",
   values: { prompt: "test" },
   files: [],
 };
@@ -116,14 +116,14 @@ test("dry-run builds the request after read-only runtime catalog checks", async 
   const result = await runImageTask({ ...baseInput, dryRun: true, dependencies: deps });
   assert.deepEqual(result, {
     dryRun: true,
-    capabilityKey: "image_text_generation",
-    model: "gpt-image-2",
+    capabilityKey: "image_async_text_generation",
+    model: "gpt-image-2-mid-adobe",
     priceLabel: "$0.0150/次",
     request: {
       method: "POST",
       path: "/v1/images/async/generations",
       headers: { "Content-Type": "application/json" },
-      body: { model: "gpt-image-2", prompt: "test" },
+      body: { model: "gpt-image-2-mid-adobe", prompt: "test" },
     },
   });
   assert.deepEqual(deps.calls, {
@@ -194,8 +194,8 @@ function createProductionDeps() {
   return deps;
 }
 
-test("every bundled public image adapter in all four capabilities has an async dry-run", async () => {
-  assert.equal(productionCapabilities.imageCapabilities.length, 4);
+test("every bundled public image adapter has an async dry-run", async () => {
+  assert.equal(productionCapabilities.imageCapabilities.length, 2);
   let dryRuns = 0;
   for (const capability of productionCapabilities.imageCapabilities) {
     for (const adapter of capability.adapters) {
@@ -228,7 +228,13 @@ test("every bundled public image adapter in all four capabilities has an async d
       dryRuns += 1;
     }
   }
-  assert.equal(dryRuns, 18);
+  assert.equal(
+    dryRuns,
+    productionCapabilities.imageCapabilities.reduce(
+      (total, capability) => total + capability.adapters.length,
+      0,
+    ),
+  );
 });
 
 test("adapter selection requires an exact capability key and model pair", async () => {
@@ -245,7 +251,7 @@ test("adapter selection requires an exact capability key and model pair", async 
   await assert.rejects(
     runImageTask({
       ...baseInput,
-      model: "gpt-image-2-unknown",
+      model: "gpt-image-2-mid-adobe-unknown",
       dependencies: deps,
       dryRun: true,
     }),
@@ -258,7 +264,7 @@ test("request protocol comes from the normalized adapter and not model naming", 
   deps.loadCapabilities = async () => ({
     imageCapabilities: [
       {
-        key: "image_text_generation",
+        key: "image_async_text_generation",
         adapters: [
           {
             model: "name-looks-like-edit",
@@ -280,7 +286,7 @@ test("request protocol comes from the normalized adapter and not model naming", 
     ],
   });
   const result = await runImageTask({
-    capabilityKey: "image_text_generation",
+    capabilityKey: "image_async_text_generation",
     model: "name-looks-like-edit",
     values: { prompt: "test" },
     dryRun: true,
@@ -295,7 +301,7 @@ for (const [name, values, pattern] of [
   ["unknown parameter", { prompt: "test", surprise: true }, /Unknown adapter parameter/],
   ["wrong type", { prompt: "test", n: "many" }, /must be a number/i],
   ["invalid option", { prompt: "test", output_format: "bmp" }, /outside.*range|not allowed/i],
-  ["numeric overflow", { prompt: "test", output_compression: 101 }, /outside.*range|0.*100/i],
+  ["invalid image size", { prompt: "test", image_size: "8K" }, /outside.*range|not allowed/i],
 ]) {
   test(`validation rejects ${name} before credentials or submission`, async () => {
     const deps = createProductionDeps();
@@ -308,36 +314,9 @@ for (const [name, values, pattern] of [
   });
 }
 
-test("Wan sequential output count and reference image count fail closed", async () => {
-  for (const values of [
-    { prompt: "test", n: 13 },
-    {
-      prompt: "test",
-      "image_urls[]": Array.from(
-        { length: 10 },
-        (_, index) => `https://assets.example.test/${index}.png`,
-      ),
-    },
-  ]) {
-    const deps = createProductionDeps();
-    await assert.rejects(
-      runImageTask({
-        capabilityKey: "image_sequential_generation",
-        model: "wan2.7-image-pro",
-        values,
-        dependencies: deps,
-      }),
-      /maximum|at most|outside.*range/i,
-    );
-    assert.equal(deps.calls.credential, 0);
-    assert.equal(deps.calls.submit, 0);
-  }
-});
-
 for (const [name, capabilityKey, model, values] of [
-  ["complex GPT size", "image_text_generation", "gpt-image-2", { prompt: "test", size: "banana" }],
-  ["aspect ratio list with prose suffix", "image_text_generation", "gemini-3.1-flash-image", { prompt: "test", aspect_ratio: "banana" }],
-  ["fixed sequential boolean", "image_sequential_generation", "wan2.7-image-pro", { prompt: "test", enable_sequential: false }],
+  ["Adobe image size", "image_async_text_generation", "gpt-image-2-mid-adobe", { prompt: "test", image_size: "banana" }],
+  ["aspect ratio list with prose suffix", "image_async_text_generation", "gemini-3.1-flash-image", { prompt: "test", aspect_ratio: "banana" }],
 ]) {
   test(`production constraints reject invalid ${name}`, async () => {
     const deps = createProductionDeps();
@@ -357,15 +336,9 @@ function allLegalAdapterValues(adapter) {
   ];
   const explicit = {
     prompt: "legal production prompt",
-    image: "https://assets.example.test/input.png",
     "image_urls[]": references,
     "image[]": references,
-    mask: "https://assets.example.test/mask.png",
     output_format: "png",
-    output_compression: 50,
-    background: "opaque",
-    moderation: "auto",
-    response_format: "url",
     seed: 7,
   };
   return Object.fromEntries(
@@ -381,7 +354,7 @@ function allLegalAdapterValues(adapter) {
   );
 }
 
-test("deterministic constraints accept legal values for all 18 production image adapters", async () => {
+test("deterministic constraints accept legal values for all current production image adapters", async () => {
   let count = 0;
   for (const capability of productionCapabilities.imageCapabilities) {
     for (const adapter of capability.adapters) {
@@ -399,14 +372,20 @@ test("deterministic constraints accept legal values for all 18 production image 
       count += 1;
     }
   }
-  assert.equal(count, 18);
+  assert.equal(
+    count,
+    productionCapabilities.imageCapabilities.reduce(
+      (total, capability) => total + capability.adapters.length,
+      0,
+    ),
+  );
 });
 
 function customConstraintDeps(range, defaultValue = "-") {
   const deps = createImageDeps();
   deps.loadCapabilities = async () => ({
     imageCapabilities: [{
-      key: "image_text_generation",
+      key: "image_async_text_generation",
       adapters: [{
         model: "constraint-model",
         parameters: [
@@ -429,7 +408,7 @@ function customConstraintDeps(range, defaultValue = "-") {
 test("user-provided values fail closed when a production range is not interpretable", async () => {
   await assert.rejects(
     runImageTask({
-      capabilityKey: "image_text_generation",
+      capabilityKey: "image_async_text_generation",
       model: "constraint-model",
       values: { prompt: "test", style: "cinematic" },
       dryRun: true,
@@ -441,7 +420,7 @@ test("user-provided values fail closed when a production range is not interpreta
 
 test("English-separated enums are parsed deterministically", async () => {
   const legal = await runImageTask({
-    capabilityKey: "image_text_generation",
+    capabilityKey: "image_async_text_generation",
     model: "constraint-model",
     values: { prompt: "test", style: "cool" },
     dryRun: true,
@@ -450,7 +429,7 @@ test("English-separated enums are parsed deterministically", async () => {
   assert.equal(legal.request.body.style, "cool");
   await assert.rejects(
     runImageTask({
-      capabilityKey: "image_text_generation",
+      capabilityKey: "image_async_text_generation",
       model: "constraint-model",
       values: { prompt: "test", style: "banana" },
       dryRun: true,
@@ -464,8 +443,8 @@ test("JSON image URL fields reject local paths instead of server-inaccessible pa
   const deps = createProductionDeps();
   await assert.rejects(
     runImageTask({
-      capabilityKey: "image_multi_reference",
-      model: "gpt-image-2",
+      capabilityKey: "image_async_multi_reference",
+      model: "gemini-3.1-flash-image",
       values: { prompt: "test", "image_urls[]": ["/tmp/private.png"] },
       dependencies: deps,
     }),
@@ -479,8 +458,8 @@ test("required reference arrays reject empty input before credentials", async ()
   const deps = createProductionDeps();
   await assert.rejects(
     runImageTask({
-      capabilityKey: "image_multi_reference",
-      model: "gpt-image-2",
+      capabilityKey: "image_async_multi_reference",
+      model: "gemini-3.1-flash-image",
       values: { prompt: "test", "image_urls[]": [] },
       dependencies: deps,
     }),
@@ -493,8 +472,8 @@ test("image URL fields reject non-HTTPS remote URLs", async () => {
   const deps = createProductionDeps();
   await assert.rejects(
     runImageTask({
-      capabilityKey: "image_multi_reference",
-      model: "gpt-image-2",
+      capabilityKey: "image_async_multi_reference",
+      model: "gemini-3.1-flash-image",
       values: { prompt: "test", "image_urls[]": ["http://assets.example.test/input.png"] },
       dependencies: deps,
     }),
@@ -503,49 +482,32 @@ test("image URL fields reject non-HTTPS remote URLs", async () => {
   assert.equal(deps.calls.credential, 0);
 });
 
-test("multipart local image paths require matching Blob file fields", async () => {
+test("new image adapters reject an unavailable legacy edit capability", async () => {
   const deps = createProductionDeps();
   await assert.rejects(
     runImageTask({
       capabilityKey: "image_edit",
-      model: "gpt-image-2",
+      model: "gpt-image-2-mid-adobe",
       values: { prompt: "test", image: "/tmp/private.png" },
       files: [],
       dependencies: deps,
     }),
-    /multipart request|requires.*file/i,
+    /image capability image_edit is not available/i,
   );
   assert.equal(deps.calls.credential, 0);
   assert.equal(deps.calls.submit, 0);
 });
 
-test("multipart fields and file counts must match the selected production variant", async () => {
-  for (const [image, files] of [
-    [
-      "https://assets.example.test/input.png",
-      [{ field: "mask", data: new Blob(["mask"]), filename: "mask.png" }],
-    ],
-    [
-      "/tmp/private.png",
-      [
-        { field: "image", data: new Blob(["one"]), filename: "one.png" },
-        { field: "image", data: new Blob(["two"]), filename: "two.png" },
-      ],
-    ],
-  ]) {
-    const deps = createProductionDeps();
-    await assert.rejects(
-      runImageTask({
-        capabilityKey: "image_edit",
-        model: "gpt-image-2",
-        values: { prompt: "test", image },
-        files,
-        dependencies: deps,
-      }),
-      /not a documented upload field|at most 1 files/i,
-    );
-    assert.equal(deps.calls.credential, 0);
-  }
+test("legacy image capability aliases resolve to the documented replacements", async () => {
+  const deps = createProductionDeps();
+  const result = await runImageTask({
+    capabilityKey: "image_text_generation",
+    model: "gpt-image-2-mid-adobe",
+    values: { prompt: "test" },
+    dryRun: true,
+    dependencies: deps,
+  });
+  assert.equal(result.request.path, "/v1/images/async/generations");
 });
 
 test("new tasks submit once, then GET-poll and persist the returned task ID", async () => {
@@ -646,7 +608,7 @@ for (const invalid of ["%%%", "YWJj=", "YW Jj", "", "data:image/png;base64,%%%"]
 
 test("CLI parses repeated params, images, mask, resume, output, and dry-run", () => {
   const parsed = parseCliArguments([
-    "--capability", "image_multi_reference",
+    "--capability", "image_async_multi_reference",
     "--model", "wan2.7-image-pro",
     "--prompt", "compose",
     "--param", "n=2",
@@ -688,7 +650,7 @@ test("CLI rejects api-key argv without echoing its value", () => {
 test("CLI lists current compatible image models and live prices without POST", async () => {
   const deps = createProductionDeps();
   const result = await executeCli(
-    ["--list-models", "--capability", "image_text_generation"],
+    ["--list-models", "--capability", "image_async_text_generation"],
     deps,
   );
   const output = formatCliResult(result);
@@ -697,7 +659,7 @@ test("CLI lists current compatible image models and live prices without POST", a
   assert.equal(result.kind, "image");
   assert.equal(result.capabilities.length, 1);
   assert.match(output, /KaiyunCode 实时图片模型/);
-  assert.match(output, /gpt-image-2｜\$0\.0150\/次/);
+  assert.match(output, /gpt-image-2-mid-adobe｜\$0\.0150\/次/);
   assert.equal(deps.calls.credential, 1);
   assert.equal(deps.calls.catalog, 1);
   assert.equal(deps.calls.submit, 0);
@@ -707,7 +669,7 @@ test("CLI lists current compatible image models and live prices without POST", a
 test("image model discovery rejects task arguments before credentials", async () => {
   const deps = createProductionDeps();
   await assert.rejects(
-    executeCli(["--list-models", "--model", "gpt-image-2"], deps),
+    executeCli(["--list-models", "--model", "gpt-image-2-mid-adobe"], deps),
     /only accepts --capability.*--credential-source.*--json/,
   );
   assert.equal(deps.calls.credential, 0);
@@ -728,12 +690,11 @@ test("CLI prepares repeated local image and mask files with basename-only metada
   const reads = [];
   const input = await prepareCliInput(
     parseCliArguments([
-      "--capability", "image_edit",
-      "--model", "wan2.7-image-pro",
-      "--prompt", "edit",
+      "--capability", "image_async_multi_reference",
+      "--model", "gpt-image-2-mid-adobe",
+      "--prompt", "reference",
       "--image", "/private/first.png",
       "--image", "/private/second.png",
-      "--mask", "/private/mask.png",
       "--dry-run",
     ]),
     {
@@ -747,24 +708,22 @@ test("CLI prepares repeated local image and mask files with basename-only metada
   assert.deepEqual(reads, [
     "/private/first.png",
     "/private/second.png",
-    "/private/mask.png",
   ]);
   assert.deepEqual(
     input.files.map(({ field, filename }) => ({ field, filename })),
     [
       { field: "image", filename: "first.png" },
       { field: "image", filename: "second.png" },
-      { field: "mask", filename: "mask.png" },
     ],
   );
   assert.ok(!JSON.stringify(input.files.map(({ filename }) => filename)).includes("/private"));
 });
 
-test("CLI accepts local files for gpt-image-2 multi-reference and names them in the confirmation card", async () => {
+test("CLI accepts local files for gpt-image-2-mid-adobe multi-reference and names them in the confirmation card", async () => {
   const input = await prepareCliInput(
     parseCliArguments([
-      "--capability", "image_multi_reference",
-      "--model", "gpt-image-2",
+      "--capability", "image_async_multi_reference",
+      "--model", "gpt-image-2-mid-adobe",
       "--prompt", "compose local references",
       "--image", "/private/DSC01013.JPG",
       "--image", "/private/DSC01014.JPG",
@@ -776,8 +735,8 @@ test("CLI accepts local files for gpt-image-2 multi-reference and names them in 
     },
   );
 
-  assert.equal(input.values["image_urls[]"].length, 2);
-  assert.ok(input.values["image_urls[]"].every((value) => value.startsWith("data:image/jpeg;base64,")));
+  assert.equal(input.values["image[]"].length, 2);
+  assert.ok(input.values["image[]"].every((value) => value.startsWith("data:image/jpeg;base64,")));
   assert.ok(input.files.every(({ inline, kind }) => inline && kind === "image"));
 
   const result = await runImageTask({ ...input, dependencies: createProductionDeps() });
@@ -794,7 +753,7 @@ test("CLI accepts local files for gpt-image-2 multi-reference and names them in 
 test("CLI maps Adobe multi-reference images onto documented image[] field", async () => {
   const input = await prepareCliInput(
     parseCliArguments([
-      "--capability", "image_multi_reference",
+      "--capability", "image_async_multi_reference",
       "--model", "gpt-image-2-mid-adobe",
       "--prompt", "compose adobe references",
       "--image", "https://assets.example.test/a.png",
@@ -822,16 +781,16 @@ test("CLI maps Adobe multi-reference images onto documented image[] field", asyn
   ]);
 });
 
-test("CLI preserves repeated remote Wan edit images in order", async () => {
+test("CLI preserves repeated remote multi-reference images in order", async () => {
   const input = await prepareCliInput(parseCliArguments([
-    "--capability", "image_edit",
-    "--model", "wan2.7-image-pro",
-    "--prompt", "edit",
+    "--capability", "image_async_multi_reference",
+    "--model", "gemini-3.1-flash-image",
+    "--prompt", "reference",
     "--image", "https://assets.example.test/car.png",
     "--image", "https://assets.example.test/paint.png",
     "--dry-run",
   ]));
-  assert.deepEqual(input.values.image, [
+  assert.deepEqual(input.values["image_urls[]"], [
     "https://assets.example.test/car.png",
     "https://assets.example.test/paint.png",
   ]);
@@ -855,8 +814,8 @@ test("CLI task-id-only resume needs no capability, model, prompt, or file reads"
 test("CLI dry-run uses injected read-only runtime catalog data", async () => {
   const result = await executeCli(
     [
-      "--capability", "image_text_generation",
-      "--model", "gpt-image-2",
+      "--capability", "image_async_text_generation",
+      "--model", "gpt-image-2-mid-adobe",
       "--prompt", "CLI dry run",
       "--dry-run",
       "--json",
@@ -867,15 +826,15 @@ test("CLI dry-run uses injected read-only runtime catalog data", async () => {
   assert.equal(output.dryRun, true);
   assert.equal(output.request.path, "/v1/images/async/generations");
   assert.match(output.confirmCard, /KaiyunCode 图片任务确认/);
-  assert.match(output.confirmCard, /gpt-image-2/);
+  assert.match(output.confirmCard, /gpt-image-2-mid-adobe/);
   assert.match(output.confirmCard, /预计费用：\$0\.0150/);
 });
 
 test("CLI dry-run default stdout is a human confirmation card", async () => {
   const result = await executeCli(
     [
-      "--capability", "image_text_generation",
-      "--model", "gpt-image-2",
+      "--capability", "image_async_text_generation",
+      "--model", "gpt-image-2-mid-adobe",
       "--prompt", "CLI dry run card",
       "--dry-run",
     ],
@@ -961,13 +920,13 @@ test("concurrent image jobs isolate failures", async () => {
 
 test("prepareJobSpec accepts capability alias and values object", async () => {
   const job = await prepareJobSpec({
-    capability: "image_text_generation",
-    model: "gpt-image-2",
+    capability: "image_async_text_generation",
+    model: "gpt-image-2-mid-adobe",
     values: { prompt: "batch job" },
     output: "./out.png",
     dryRun: true,
   });
-  assert.equal(job.capabilityKey, "image_text_generation");
+  assert.equal(job.capabilityKey, "image_async_text_generation");
   assert.equal(job.values.prompt, "batch job");
   assert.equal(job.dryRun, true);
 });

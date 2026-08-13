@@ -328,6 +328,25 @@ test("normalizer ignores response-only polling metadata steps", () => {
   );
 });
 
+test("normalizer ignores informational steps with non-response parameters", () => {
+  const tutorial = tutorialWithStep({
+    parameters: [
+      {
+        name: "TASK_ID",
+        location: "path",
+        type: "string",
+        required: true,
+      },
+    ],
+    codeBlocks: [],
+  });
+  assert.deepEqual(
+    normalizeProductionTutorial(tutorial, publicFixture).videoCapabilities[0]
+      .adapters,
+    [],
+  );
+});
+
 test("loader refreshes both adapter sources and atomically caches the snapshot", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "kaiyun-capabilities-"));
   t.after(() => rm(root, { recursive: true, force: true }));

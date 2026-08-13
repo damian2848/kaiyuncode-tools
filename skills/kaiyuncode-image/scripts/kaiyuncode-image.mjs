@@ -27,6 +27,10 @@ import {
 } from "../../../shared/runtime-catalog.mjs";
 
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);
+const IMAGE_CAPABILITY_ALIASES = new Map([
+  ["image_text_generation", "image_async_text_generation"],
+  ["image_multi_reference", "image_async_multi_reference"],
+]);
 const CAPABILITIES_PATH = fileURLToPath(
   new URL("../../../references/production-capabilities.json", import.meta.url),
 );
@@ -37,6 +41,10 @@ async function loadCapabilities(options = {}) {
     allowStale: true,
     ...options,
   });
+}
+
+function normalizedCapabilityKey(capabilityKey) {
+  return IMAGE_CAPABILITY_ALIASES.get(capabilityKey) ?? capabilityKey;
 }
 
 function documentedImageInputName(adapter) {
@@ -58,7 +66,8 @@ function selectImageAdapterForInputs(
   images,
   files,
 ) {
-  const capability = imageCapabilities.find(({ key }) => key === capabilityKey);
+  const normalizedKey = normalizedCapabilityKey(capabilityKey);
+  const capability = imageCapabilities.find(({ key }) => key === normalizedKey);
   if (!capability) {
     throw new Error(`Image capability ${capabilityKey} is not available`);
   }
@@ -123,9 +132,10 @@ function fileSatisfies(parameter, files) {
 function missingRequired(adapter, values, files) {
   return adapter.parameters.filter((parameter) => {
     if (!parameter.required || parameter.name === "model") return false;
+    // Required values must not silently inherit tutorial examples.
     const value = Object.hasOwn(values, parameter.name)
       ? values[parameter.name]
-      : parameter.defaultValue;
+      : undefined;
     return !requiredPresent(value) && !fileSatisfies(parameter, files);
   });
 }
@@ -142,7 +152,8 @@ function findAdapter(imageCapabilities, capabilityKey, model, values, files) {
   if (RETIRED_MODELS.has(model)) {
     throw new Error(`${model} is not available in the production model catalog`);
   }
-  const capability = imageCapabilities.find(({ key }) => key === capabilityKey);
+  const normalizedKey = normalizedCapabilityKey(capabilityKey);
+  const capability = imageCapabilities.find(({ key }) => key === normalizedKey);
   if (!capability) {
     throw new Error(`Image capability ${capabilityKey} is not available`);
   }
@@ -463,10 +474,8 @@ export async function listImageModels({
   const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
   const snapshot = await deps.loadCapabilities();
   const capabilities = snapshot.imageCapabilities;
-  if (
-    capabilityKey &&
-    !capabilities.some(({ key }) => key === capabilityKey)
-  ) {
+  const normalizedKey = normalizedCapabilityKey(capabilityKey);
+  if (normalizedKey && !capabilities.some(({ key }) => key === normalizedKey)) {
     throw new Error(`Image capability ${capabilityKey} is not available`);
   }
   const credential = await deps.resolveCredential({
@@ -479,7 +488,7 @@ export async function listImageModels({
     kind: "image",
     capabilities,
     runtimeCatalog,
-    capabilityKey,
+    capabilityKey: normalizedKey,
   });
 }
 
@@ -758,12 +767,7 @@ export async function prepareCliInput(
         images.push(file.value);
       }
     }
-    if (parsed.capabilityKey === "image_edit") {
-      assignImageInputs(values, images, "image");
-    } else if (
-      parsed.capabilityKey === "image_multi_reference" ||
-      parsed.capabilityKey === "image_sequential_generation"
-    ) {
+    if (normalizedCapabilityKey(parsed.capabilityKey) === "image_async_multi_reference") {
       const snapshot = await loadCapabilitiesImpl();
       const adapter = selectImageAdapterForInputs(
         snapshot.imageCapabilities,

@@ -31,43 +31,67 @@ function safeClone(value, seen = new Map()) {
 }
 
 function coerceValue(value, type) {
-  if (type === "string") {
+  const valueType = typeof type === "string" ? type.trim() : "";
+  const scalarType = valueType.replace(/\s*\|\s*file$/u, "");
+  const parseJson = (expected) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw new Error(`Adapter parameter must be ${expected}`);
+    }
+  };
+  if (scalarType === "string") {
     if (typeof value !== "string") throw new Error("Adapter parameter must be a string");
     return value;
   }
-  if (type === "number" || type === "integer") {
+  if (scalarType === "number" || scalarType === "integer") {
     if (typeof value !== "number" && typeof value !== "string") {
-      throw new Error(`Adapter parameter must be a ${type}`);
+      throw new Error(`Adapter parameter must be a ${scalarType}`);
     }
     if (typeof value === "string" && value.trim() === "") {
-      throw new Error(`Adapter parameter must be a ${type}`);
+      throw new Error(`Adapter parameter must be a ${scalarType}`);
     }
     const parsed = typeof value === "number" ? value : Number(value);
-    if (!Number.isFinite(parsed) || (type === "integer" && !Number.isInteger(parsed))) {
-      throw new Error(`Adapter parameter must be a ${type}`);
+    if (!Number.isFinite(parsed) || (scalarType === "integer" && !Number.isInteger(parsed))) {
+      throw new Error(`Adapter parameter must be a ${scalarType}`);
     }
     return parsed;
   }
-  if (type === "boolean") {
+  if (scalarType === "boolean") {
     if (typeof value === "boolean") return value;
     if (value === "true") return true;
     if (value === "false") return false;
     throw new Error("Adapter parameter must be a boolean");
   }
-  if (type === "string[]") {
-    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+  if (scalarType === "string[]") {
+    const parsed = parseJson("an array of strings");
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
       throw new Error("Adapter parameter must be an array of strings");
     }
-    return safeClone(value);
+    return safeClone(parsed);
   }
-  if (type === "object[]" || /^Array<\{/u.test(type)) {
+  if (scalarType === "array") {
+    const parsed = parseJson("an array");
+    if (!Array.isArray(parsed)) throw new Error("Adapter parameter must be an array");
+    return safeClone(parsed);
+  }
+  if (scalarType === "object") {
+    const parsed = parseJson("an object");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Adapter parameter must be an object");
+    }
+    return safeClone(parsed);
+  }
+  if (scalarType === "object[]" || /^Array<\{/u.test(scalarType)) {
+    const parsed = parseJson("an array of objects");
     if (
-      !Array.isArray(value) ||
-      value.some((item) => !item || typeof item !== "object" || Array.isArray(item))
+      !Array.isArray(parsed) ||
+      parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))
     ) {
       throw new Error("Adapter parameter must be an array of objects");
     }
-    return safeClone(value);
+    return safeClone(parsed);
   }
   throw new Error(`Invalid adapter parameter type: ${type}`);
 }
@@ -199,9 +223,41 @@ function multipartUploadFields(variant) {
 }
 
 function parameterMatchesField(parameter, fieldName) {
-  if (parameter.name.replace(/\[\]$/u, "") === fieldName) return true;
+  const parameterName = parameter.name.replace(/\[\]$/u, "");
+  if (parameterName === fieldName) return true;
   const segments = parameterSegments(parameter.name);
-  return segments.at(-1)?.key === fieldName;
+  const leaf = segments.at(-1)?.key;
+  if (leaf === fieldName) return true;
+  return mediaFieldScore(leaf, fieldName) !== null;
+}
+
+function normalizedMediaName(value) {
+  return String(value ?? "")
+    .replace(/(?:urls?|files?)$/iu, "")
+    .replace(/[_-]/gu, "")
+    .toLowerCase();
+}
+
+function singularMediaName(value) {
+  return normalizedMediaName(value).replace(/s$/u, "");
+}
+
+function mediaFieldScore(parameterLeaf, fieldName) {
+  if (typeof parameterLeaf !== "string" || typeof fieldName !== "string") {
+    return null;
+  }
+  const leaf = normalizedMediaName(parameterLeaf);
+  const field = normalizedMediaName(fieldName);
+  const singularLeaf = singularMediaName(parameterLeaf);
+  const singularField = singularMediaName(fieldName);
+  if (leaf === field) return 1;
+  if (singularLeaf === singularField) return 2;
+  if (leaf.startsWith("extra") && singularLeaf.slice(5) === singularField) return 3;
+  if (leaf.startsWith("reference") && singularLeaf.slice(9) === singularField) return 3;
+  if (leaf === "media" && /^(?:images?|videos?|audios?|referenceimages|referencevideos|referencevoice)$/u.test(field)) {
+    return 4;
+  }
+  return null;
 }
 
 function multipartSupportsFiles(variant, files) {
@@ -216,7 +272,10 @@ function multipartSupportsScalars(variant, resolved) {
       parameterMatchesField(parameter, name),
     );
     if (matchingFields.length === 0) continue;
-    if (matchingFields.every(isMultipartUploadField)) return false;
+    if (matchingFields.every(isMultipartUploadField)) {
+      if (containsLocalMediaPath(parameter.value, parameter.name)) return false;
+      continue;
+    }
     if (
       parameter.repeatedScalar &&
       parameter.value.length >
@@ -389,7 +448,22 @@ function candidateForField(fieldName, resolved) {
     const segments = parameterSegments(parameter.name);
     return segments.at(-1)?.key === normalizedField;
   });
-  return leafMatches.length === 1 ? leafMatches[0] : null;
+  if (leafMatches.length === 1) return leafMatches[0];
+  const scored = resolved
+    .map((parameter) => {
+      const segments = parameterSegments(parameter.name);
+      return {
+        parameter,
+        score: mediaFieldScore(segments.at(-1)?.key, normalizedField),
+      };
+    })
+    .filter(({ score }) => score !== null)
+    .sort((left, right) => left.score - right.score);
+  if (scored.length === 0) return null;
+  const best = scored[0];
+  return scored.filter(({ score }) => score === best.score).length === 1
+    ? best.parameter
+    : null;
 }
 
 function nestedFieldValue(fieldName, resolved) {
@@ -432,6 +506,33 @@ function appendFormValue(form, name, value) {
   );
 }
 
+function mediaValuesForField(value, fieldName) {
+  const values = Array.isArray(value) ? value : [value];
+  const kind = /audio|voice/iu.test(fieldName)
+    ? "audio"
+    : /video|clip/iu.test(fieldName)
+      ? "video"
+      : "image";
+  const matches = values.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const url = item.url ?? item.image_url ?? item.video_url ?? item.audio_url;
+    if (typeof url !== "string") return [];
+    const type = String(item.type ?? "").toLowerCase();
+    if (kind === "video" && !/(?:video|clip)/u.test(type)) return [];
+    if (kind === "audio" && !/(?:audio|voice)/u.test(type)) return [];
+    if (kind === "image" && /(?:video|clip|audio|voice)/u.test(type)) return [];
+    return [url];
+  });
+  if (kind === "image" && fieldName === "image" && matches.length > 1) {
+    return matches.slice(0, 1);
+  }
+  if (kind === "image" && fieldName === "images" && matches.length > 1) {
+    return matches.slice(1);
+  }
+  return matches;
+}
+
 function buildMultipartRequest(adapter, variant, resolved, files) {
   const documentedFields = new Set(variant.fields.map(({ name }) => name));
   const uploadFields = new Set(
@@ -452,15 +553,25 @@ function buildMultipartRequest(adapter, variant, resolved, files) {
       form.append("model", adapter.model);
       continue;
     }
+    const parameter = candidateForField(field.name, resolved);
+    const uploadField =
+      typeof field.value === "string" && field.value.startsWith("@");
     if (fileFields.has(field.name)) {
-      const parameter = candidateForField(field.name, resolved);
       if (parameter?.present) appendedParameters.add(parameter.name);
       continue;
     }
-    if (typeof field.value === "string" && field.value.startsWith("@")) {
+    if (uploadField) {
+      if (!parameter?.present) continue;
+      const mediaValues = mediaValuesForField(parameter.value, field.name);
+      if (mediaValues.length > 0) {
+        if (mediaValues.some((value) => isLocalPath(value))) {
+          throw new Error("Local media paths require matching multipart files");
+        }
+        for (const value of mediaValues) appendFormValue(form, field.name, value);
+        appendedParameters.add(parameter.name);
+      }
       continue;
     }
-    const parameter = candidateForField(field.name, resolved);
     if (parameter?.present && appendedParameters.has(parameter.name)) continue;
     const value = parameter?.present
       ? parameter.value
@@ -515,8 +626,8 @@ export function buildAdapterRequest(adapter, values = {}, files = []) {
     headers: request.headers,
     body: summaryBody,
   });
-  if (inlineFiles.length > 0) {
-    summary.localResources = inlineFiles.map(({ filename, data, kind }) => ({
+  if (normalizedFiles.length > 0) {
+    summary.localResources = normalizedFiles.map(({ filename, data, kind }) => ({
       type: kind ?? "file",
       name: filename,
       size: data.size,

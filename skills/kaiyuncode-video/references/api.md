@@ -22,14 +22,13 @@ automatically retried.
 
 | Capability key | Typical models | Input profile |
 | --- | --- | --- |
-| `video_capability_video_text_generation` | HappyHorse t2v, Wan t2v, Kling, Grok, Omni Flash, video-pro | Required prompt (`prompt` or `input.prompt`); some Grok profiles also require `image_url` |
-| `video_capability_video_image_to_video` | HappyHorse i2v, Wan i2v, Dreamina, Grok 1.5, Omni i2v | Required first-frame image via `image`, `image_url`, or `input.media[]` |
-| `video_capability_video_first_last_frame` | `wan2.7-i2v` | Required `input.prompt` and `input.media[]` with `first_frame` + `last_frame` |
-| `video_capability_video_continuation` | `wan2.7-i2v` | Required `input.prompt` and `input.media[]` with clip/frame continuation types |
-| `video_capability_video_reference_generation` | HappyHorse r2v, Wan r2v, Omni components | Required prompt plus reference image arrays |
-| `video_capability_video_image_audio_to_video` | `video-pro-720p`, `dreamina-mini` | Required prompt and image; optional/limited audio arrays |
-| `video_capability_video_multimodal_to_video` | `wan2.7-r2v`, `video-pro-720p` | Multimodal image/video/audio combinations |
-| `video_capability_video_recreate` | Omni edit, HappyHorse edit, Wan videoedit | Required source video via `video_url`, `input_video`, `metadata.video`, or `input.media[]`; prompt is profile-dependent |
+| `video_capability_video_text_generation` | HappyHorse t2v, Wan t2v, Seedance, Kling, Grok, Omni Flash | Required prompt (`prompt` or `input.prompt`) |
+| `video_capability_video_image_to_video` | HappyHorse i2v, Wan i2v, Seedance, Grok, Kling, Omni Flash | Required primary image via `image`, `image_url`, `input_reference`, `image_urls[]`, or `input.media[]` |
+| `video_capability_video_multi_image_generation` | HappyHorse r2v, Wan r2v, Grok 1.5, Seedance, Omni Flash | Required prompt plus multiple image references |
+| `video_capability_video_first_last_frame` | Wan i2v, Seedance, Kling | Required first image; Wan/Kling profiles use `input.prompt` and `input.media[]` with `first_frame` + `last_frame` |
+| `video_capability_video_storyboard_generation` | Kling v3, Kling v3 Omni | Required `input.prompt`; storyboard fields are model-specific |
+| `video_capability_video_reference_generation` | Wan r2v and Seedance | Reference images, videos, and audio where supported by the selected adapter |
+| `video_capability_video_recreate` | HappyHorse video edit, Wan videoedit, Wan i2v | Required source video via `metadata.video` or `input.media[]`; prompt is profile-dependent |
 
 The runner selects the exact adapter by capability key and model, then by
 normalized parameter schema when a model has multiple profiles. This is schema
@@ -45,9 +44,10 @@ Many production adapters use dotted parameter names:
 | `input.media[]` | Array of `{ type, url, ... }` media objects |
 | `metadata.resolution` / `metadata.ratio` / `metadata.duration` | HappyHorse metadata |
 | `metadata.video` | Source video for HappyHorse edit |
-| `video_url` | Public source video URL for Omni dewatermark |
-| `parameters.duration` / `parameters.mode` / `parameters.watermark` | Nested generation controls |
-| `messages[]` | Omni recreate chat-style instructions |
+| `input_reference` | Grok i2v object such as `{ "image_url": "https://..." }` |
+| `reference_images` | Grok 1.5 multi-image array of `{ "url": "https://..." }` objects |
+| `parameters.duration` / `parameters.mode` | Wan/Kling nested generation controls |
+| `extra_images` / `extra_videos` / `extra_audios` | Seedance JSON reference arrays; the current tutorial does not use `[]` in these field names |
 
 Use `--param input.prompt=...` or let `--prompt` remap to `input.prompt` when
 the selected adapter documents only the nested form.
@@ -60,8 +60,8 @@ the selected adapter documents only the nested form.
 | Duration / seconds | Use only values or ranges listed by the selected adapter |
 | Aspect / ratio | Use only ratios listed by the selected adapter |
 | Resolution | Common values include `720P`/`1080P` or `720p` depending on adapter |
-| Audio arrays | 本机音频或 HTTPS URL；数量遵循选定 adapter，video-pro 不允许音频单独存在 |
-| Video arrays | 本机视频或 HTTPS URL；数量遵循选定的多模态 adapter |
+| Audio arrays | 本机音频或 HTTPS URL；数量遵循选定 adapter，部分 Seedance profile 要求和图片或视频搭配 |
+| Video arrays | 本机视频或 HTTPS URL；数量遵循选定的参考素材 adapter |
 | Reference images | 本机图片或 HTTPS URL；数量遵循选定 adapter |
 
 The runner validates the actual parameter table attached to the exact adapter.
