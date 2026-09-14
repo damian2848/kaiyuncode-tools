@@ -5,6 +5,10 @@ description: "全流程引导用户使用 KaiyunCode 完成图片或视频创作
 
 # KaiyunCode 创作助手
 
+## 运行环境
+
+本 Skill 可独立安装到支持 Agent Skills 的 agent；不依赖 Codex 专属工具。需要 Node.js 20+、文件读写和联网执行命令的能力。`<skill-dir>` 指当前 `SKILL.md` 所在目录，执行时替换为实际绝对路径并正确引用空格路径；输出写到用户工作目录，不写入 Skill 安装目录。若运行在容器或远程 agent，Node、素材和凭据必须位于实际执行环境中。宿主没有命令执行能力时，说明缺少的能力，不声称已生成成品。
+
 把自然语言创作需求推进为可交付的图片或视频。不要让用户先学习 capability、模型 ID 或命令行。
 
 ## 阶段规则
@@ -27,12 +31,12 @@ description: "全流程引导用户使用 KaiyunCode 完成图片或视频创作
 
 信息不足时只问一个合并问题，例如：“这次要做图片还是视频，主要发在哪个平台，有没有参考素材？”用户只有一句明确需求时，先提出合理默认方案，不要反复追问。
 
-把需求映射到图片或视频 Skill：
+根据需求选择本 Skill 自带的 Runner（无需另装其他 Skill）：
 
-- 图片生成、编辑、多图参考、组图：使用 `kaiyuncode-image`。
-- 文生视频、图生视频、首尾帧、续写、参考、多模态、复刻：使用 `kaiyuncode-video`。
+- 图片生成、编辑、多图参考、组图：使用 `scripts/kaiyuncode-image.mjs`。
+- 文生视频、图生视频、首尾帧、续写、参考、多模态、复刻：使用 `scripts/kaiyuncode-video.mjs`。
 
-详细能力和参数只在需要时读取相应的 `../kaiyuncode-image/references/api.md` 或 `../kaiyuncode-video/references/api.md`。
+详细能力和参数只在需要时读取相应的 [图片参数](references/image-api.md) 或 [视频参数](references/video-api.md)。
 
 ## 2. 凭据就绪
 
@@ -41,7 +45,7 @@ description: "全流程引导用户使用 KaiyunCode 完成图片或视频创作
 缺少凭据时，请用户把 API Key 直接粘贴到聊天框。收到后只保存媒体权威密钥：
 
 ```bash
-KAIYUN_API_KEY='用户粘贴的密钥' node <skill-dir>/../kaiyuncode-configure-agents/scripts/save-api-key.mjs
+KAIYUN_API_KEY='用户粘贴的密钥' node <skill-dir>/scripts/save-api-key.mjs
 ```
 
 不要回显完整 Key，不要放进 Runner argv，不要默认修改 Codex 或 Claude Code。用户明确表示没有 Key 时才提供：
@@ -55,10 +59,10 @@ KAIYUN_API_KEY='用户粘贴的密钥' node <skill-dir>/../kaiyuncode-configure-
 根据简报先确定 capability，再读取当前可用模型和价格：
 
 ```bash
-node <skill-dir>/../kaiyuncode-image/scripts/kaiyuncode-image.mjs \
+node <skill-dir>/scripts/kaiyuncode-image.mjs \
   --list-models --capability <image-capability>
 
-node <skill-dir>/../kaiyuncode-video/scripts/kaiyuncode-video.mjs \
+node <skill-dir>/scripts/kaiyuncode-video.mjs \
   --list-models --capability <video-capability>
 ```
 
@@ -82,7 +86,7 @@ node <skill-dir>/../kaiyuncode-video/scripts/kaiyuncode-video.mjs \
 
 ## 5. 预算确认
 
-始终先调用具体 Skill 的 Runner 执行 `--dry-run`。默认输出的人类可读确认卡必须原样贴给用户，其中包括实时模型校验、参考资源情况、价格来源、预计费用和预算上限。每个任务的参考资源都要按类型列出数量和安全文件名；没有参考资源时也要明确显示「无」。
+始终先调用本 Skill 的图片或视频 Runner 执行 `--dry-run`。默认输出的人类可读确认卡必须原样贴给用户，其中包括实时模型校验、参考资源情况、价格来源、预计费用和预算上限。每个任务的参考资源都要按类型列出数量和安全文件名；没有参考资源时也要明确显示「无」。
 
 确认卡发出后停止，不在同一轮提交。只有用户在看到当前确认卡后明确回复“确认提交”或同等清晰授权，才能去掉 `--dry-run`。模型、参数、素材、数量、输出或预算发生任何变化，都必须重新 dry-run；不要复用旧授权。
 
@@ -109,4 +113,6 @@ node <skill-dir>/../kaiyuncode-video/scripts/kaiyuncode-video.mjs \
 - 提交状态未知或轮询超时：保留 task ID，使用 `--task-id` 恢复；不要自动重发 POST。
 - `/api/pricing` 缺价：允许展示 dry-run 的待确认状态，但禁止付费 POST。
 
-完整执行约束以 `../kaiyuncode-image/SKILL.md` 和 `../kaiyuncode-video/SKILL.md` 为准。
+Runner 的命令参数可通过 `node <skill-dir>/scripts/kaiyuncode-image.mjs --help` 或视频 Runner 的 `--help` 查看。新任务需要明确预算；禁止为测试发起真实付费请求。
+
+凭据目录可用 `KAIYUN_HOME` 覆盖，文件名固定为 `credentials.env`。新文件不存在时依次读取 `~/.codex/kaiyun-tools.env`、`~/.codex/kaiyun-video.env`（尊重 `CODEX_HOME`），再按原有规则尝试 Codex / Claude 的 KaiyunCode 凭据。安装或保存媒体 Key 不会配置任何 agent 的文本模型。

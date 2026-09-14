@@ -5,32 +5,36 @@ description: "使用 KaiyunCode 异步视频模型完成文生视频、图生视
 
 # KaiyunCode Video
 
+## 运行环境
+
+本 Skill 可独立安装到支持 Agent Skills 的 agent；不依赖 Codex 专属工具。需要 Node.js 20+、文件读写和联网执行命令的能力。`<skill-dir>` 指当前 `SKILL.md` 所在目录，执行时替换为实际绝对路径并正确引用空格路径；输出写到用户工作目录，不写入 Skill 安装目录。若运行在容器或远程 agent，Node、素材和凭据必须位于实际执行环境中。宿主没有命令执行能力时，说明缺少的能力，不声称已生成成品。
+
 KaiyunCode video generation is asynchronous only. Use the bundled runner for
 adapter selection, validation, submission, polling, and atomic result storage.
 Never assemble a request from a model name.
 
-跨图片 / 视频、第一次使用或尚未明确交付物时，先转 `kaiyuncode-create` 完成创意简报。本 Skill 负责已确定视频方向后的具体执行。
+先从用途、风格、规格和素材整理视频创意简报；若同时安装了 `kaiyuncode-create`，跨图片 / 视频需求可交给它引导。本 Skill 的命令和凭据保存均可独立使用。
 
 ## First-use guidance（必须）
 
-用户第一次在本会话做视频，或本机还没有媒体密钥时：
+先用 `--list-models` 检查已有凭据；仅缺少凭据时执行以下步骤，不因新会话重复索取 Key：
 
 1. 请用户把 API Key **粘贴到聊天框**。
 2. 保存为权威媒体密钥（不改 Codex / Claude 文本客户端）：
 
 ```bash
-KAIYUN_API_KEY='...' node <skill-dir>/../kaiyuncode-configure-agents/scripts/save-api-key.mjs
+KAIYUN_API_KEY='...' node <skill-dir>/scripts/save-api-key.mjs
 ```
 
-3. 只有用户明确要求配置文本客户端时，再转 `kaiyuncode-configure-agents`。
-4. 用户没有密钥时再给：注册 → 充值 → 创建 Key 链接。
+3. 只有用户明确要求配置文本客户端时，再使用已安装的 `kaiyuncode-configure-agents`；未安装时说明需要该可选 Skill。
+4. 用户没有密钥时再提供：[注册或登录](https://kaiyuncode.com/?login=1) → [充值](https://kaiyuncode.com/pricing) → [创建 API Key](https://kaiyuncode.com/account/api-key)。
 
 ## Credentials
 
 媒体任务凭据优先级（**固定**）：
 
 1. 本次 `KAIYUN_API_KEY` 环境变量
-2. `~/.codex/kaiyun-tools.env`（权威文件；兼容 `kaiyun-video.env`）
+2. `~/.config/kaiyuncode/credentials.env`（权威文件；兼容旧版 Codex 媒体凭据）
 3. 仅当 1/2 都没有时，才 fallback 到 Codex / Claude 的 KaiyunCode 配置
 
 **不要**因为 Claude 与 file 密钥不同就卡住。有 file/env 时直接用，忽略客户端差异。
@@ -107,3 +111,5 @@ node <skill-dir>/scripts/kaiyuncode-video.mjs \
 - Do not submit after dry-run without pasting the confirmCard and getting explicit user authorization.
 
 Never place an API key in command-line arguments, logs, or chat output.
+
+凭据目录可用 `KAIYUN_HOME` 覆盖，文件名固定为 `credentials.env`。新文件不存在时依次读取 `~/.codex/kaiyun-tools.env`、`~/.codex/kaiyun-video.env`（尊重 `CODEX_HOME`），再按原有规则尝试 Codex / Claude 的 KaiyunCode 凭据。安装或保存媒体 Key 不会配置任何 agent 的文本模型。

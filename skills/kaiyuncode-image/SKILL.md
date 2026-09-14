@@ -5,29 +5,33 @@ description: "使用 KaiyunCode 异步图片模型生成、编辑、多图参考
 
 # KaiyunCode Image
 
+## 运行环境
+
+本 Skill 可独立安装到支持 Agent Skills 的 agent；不依赖 Codex 专属工具。需要 Node.js 20+、文件读写和联网执行命令的能力。`<skill-dir>` 指当前 `SKILL.md` 所在目录，执行时替换为实际绝对路径并正确引用空格路径；输出写到用户工作目录，不写入 Skill 安装目录。若运行在容器或远程 agent，Node、素材和凭据必须位于实际执行环境中。宿主没有命令执行能力时，说明缺少的能力，不声称已生成成品。
+
 KaiyunCode image generation is asynchronous only. Use the bundled runner for
 adapter selection, validation, submission, polling, and atomic result storage.
 Never assemble a request from a model name.
 
-跨图片 / 视频、第一次使用或尚未明确交付物时，先转 `kaiyuncode-create` 完成创意简报。本 Skill 负责已确定图片方向后的具体执行。
+先从用途、风格、规格和素材整理图片创意简报；若同时安装了 `kaiyuncode-create`，跨图片 / 视频需求可交给它引导。本 Skill 的命令和凭据保存均可独立使用。
 
 ## First-use guidance（必须）
 
-用户第一次在本会话做图片，或本机还没有媒体密钥时：
+先用 `--list-models` 检查已有凭据；仅缺少凭据时执行以下步骤，不因新会话重复索取 Key：
 
 1. 请用户把 API Key **粘贴到聊天框**。
 2. 保存为权威媒体密钥：
 
 ```bash
-KAIYUN_API_KEY='...' node <skill-dir>/../kaiyuncode-configure-agents/scripts/save-api-key.mjs
+KAIYUN_API_KEY='...' node <skill-dir>/scripts/save-api-key.mjs
 ```
 
-3. **不要**为了生图去改 Codex / Claude Code；只有用户明确要求时再转 `kaiyuncode-configure-agents`。
-4. 用户没有密钥时再给注册 / 充值 / 创建密钥链接。
+3. **不要**为了生图去改 Codex / Claude Code；只有用户明确要求时再使用已安装的 `kaiyuncode-configure-agents`；未安装时说明需要该可选 Skill。
+4. 用户没有密钥时再提供：[注册或登录](https://kaiyuncode.com/?login=1) → [充值](https://kaiyuncode.com/pricing) → [创建 API Key](https://kaiyuncode.com/account/api-key)。
 
 ## Credentials
 
-优先级：`KAIYUN_API_KEY` env → `~/.codex/kaiyun-tools.env` →（仅两者皆无）Codex/Claude KaiyunCode 配置。
+优先级：`KAIYUN_API_KEY` env → `~/.config/kaiyuncode/credentials.env` →（仅两者皆无）Codex/Claude KaiyunCode 配置。
 
 有 env/file 时忽略 Claude/Codex 差异。可选：
 
@@ -95,3 +99,5 @@ node <skill-dir>/scripts/kaiyuncode-image.mjs \
 - Do not submit without confirmCard + explicit user authorization.
 
 Never place an API key in command-line arguments, logs, or chat output.
+
+凭据目录可用 `KAIYUN_HOME` 覆盖，文件名固定为 `credentials.env`。新文件不存在时依次读取 `~/.codex/kaiyun-tools.env`、`~/.codex/kaiyun-video.env`（尊重 `CODEX_HOME`），再按原有规则尝试 Codex / Claude 的 KaiyunCode 凭据。安装或保存媒体 Key 不会配置任何 agent 的文本模型。

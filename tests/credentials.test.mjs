@@ -35,7 +35,7 @@ async function createFixture(t, { codexConfig, codexKey, claudeSettings } = {}) 
     );
   }
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { codexHome, claudeHome };
+  return { home: root, codexHome, claudeHome };
 }
 
 const kaiyunCodexConfig = `
@@ -289,9 +289,40 @@ test("legacy kaiyun-video.env is still accepted", async (t) => {
   );
 });
 
-test("default credential path stays under Codex home", () => {
+test("default credential path uses an agent-neutral home", () => {
   assert.match(
-    getDefaultCredentialFilePath("/tmp/demo-codex"),
-    /kaiyun-tools\.env$/,
+    getDefaultCredentialFilePath("/tmp/demo-kaiyun"),
+    /demo-kaiyun\/credentials\.env$/,
   );
+});
+
+test("neutral credentials take precedence over both legacy media files", async (t) => {
+  const homes = await createFixture(t);
+  const path = getDefaultCredentialFilePath(join(homes.home, ".config/kaiyuncode"));
+  await saveApiKeyFile("neutral-key", { path });
+  await writeFile(join(homes.codexHome, "kaiyun-tools.env"), "KAIYUN_API_KEY=old-key\n");
+  await writeFile(join(homes.codexHome, "kaiyun-video.env"), "KAIYUN_API_KEY=older-key\n");
+  assert.deepEqual(await resolveCredential({ ...homes, env: {} }), { apiKey: "neutral-key", source: "file", path });
+  await rm(path);
+  assert.equal((await resolveCredential({ ...homes, env: {} })).apiKey, "old-key");
+  await rm(join(homes.codexHome, "kaiyun-tools.env"));
+  assert.equal((await resolveCredential({ ...homes, env: {} })).apiKey, "older-key");
+});
+
+test("env and neutral file credentials do not read broken unrelated client configuration", async (t) => {
+  const homes = await createFixture(t);
+  await writeFile(join(homes.claudeHome, "settings.json"), "broken JSON");
+  assert.equal((await resolveCredential({ ...homes, env: { KAIYUN_API_KEY: "env-key" } })).apiKey, "env-key");
+  const path = getDefaultCredentialFilePath(join(homes.home, "custom"));
+  await saveApiKeyFile("custom-key", { path });
+  assert.deepEqual(await resolveCredential({ ...homes, env: { KAIYUN_HOME: join(homes.home, "custom") } }), { apiKey: "custom-key", source: "file", path });
+});
+
+test("CODEX_HOME legacy fallback and explicit source avoid other agent settings", async (t) => {
+  const homes = await createFixture(t, { codexConfig: kaiyunCodexConfig, codexKey: "codex-key" });
+  await writeFile(join(homes.claudeHome, "settings.json"), "broken JSON");
+  const path = join(homes.codexHome, "kaiyun-tools.env");
+  await saveApiKeyFile("legacy-key", { path });
+  assert.deepEqual(await resolveCredential({ home: homes.home, env: { CODEX_HOME: homes.codexHome } }), { apiKey: "legacy-key", source: "file", path });
+  assert.deepEqual(await resolveCredential({ ...homes, env: {}, preferSource: "codex" }), { apiKey: "codex-key", source: "codex" });
 });

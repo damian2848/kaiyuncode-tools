@@ -1,10 +1,17 @@
 {
-  "name": "kaiyuncode-tools-plugin",
+  "name": "kaiyuncode-tools",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "sync:tutorial": "node scripts/sync-production-tutorial.mjs",
-    "validate": "npm test"
+    "validate": "npm run check:skills && npm test",
+    "build:skills": "node scripts/build-skills.mjs",
+    "check:skills": "node scripts/build-skills.mjs --check",
+    "install:skills": "node scripts/install.mjs"
+  },
+  "version": "0.3.0",
+  "engines": {
+    "node": ">=20"
   }
 }

@@ -1,18 +1,18 @@
 #!/usr/bin/env node
+import { isMainModule } from "./lib/entrypoint.mjs";
 
 import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
 import {
   getDefaultCredentialFilePath,
   saveApiKeyFile,
-} from "../../../shared/credentials.mjs";
-import { redactSensitive } from "../../../shared/redaction.mjs";
-import { mergeClaudeSettings, mergeCodexConfig } from "../../../shared/toml-edit.mjs";
+} from "./lib/credentials.mjs";
+import { redactSensitive } from "./lib/redaction.mjs";
+import { mergeClaudeSettings, mergeCodexConfig } from "./lib/toml-edit.mjs";
 
 const MODE_PRIVATE = 0o600;
 const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
@@ -349,7 +349,7 @@ export async function configureAgents(options = {}) {
   });
 
   const mediaCredentialPath =
-    options.mediaCredentialPath ?? getDefaultCredentialFilePath(codexHome);
+    options.mediaCredentialPath ?? getDefaultCredentialFilePath((options.environment ?? process.env).KAIYUN_HOME ?? join(home, ".config", "kaiyuncode"));
   const preview = {
     mediaCredential: {
       path: mediaCredentialPath,
@@ -514,7 +514,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMainModule(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${safeErrorMessage(error)}\n`);
     process.exitCode = 1;

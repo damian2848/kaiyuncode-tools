@@ -64,7 +64,7 @@ export function buildOnboarding({
         steps: [
           {
             label: "保存权威媒体密钥",
-            detail: "save-api-key.mjs → ~/.codex/kaiyun-tools.env",
+            detail: "save-api-key.mjs → ~/.config/kaiyuncode/credentials.env",
           },
           {
             label: "预览客户端配置",
@@ -77,7 +77,7 @@ export function buildOnboarding({
       mode: "save-key",
       question: null,
       message:
-        "已收到 API Key。保存到 ~/.codex/kaiyun-tools.env 后继续实时选型，不修改 Codex / Claude Code。",
+        "已收到 API Key。保存到 ~/.config/kaiyuncode/credentials.env 后继续实时选型，不修改 Codex / Claude Code。",
       steps: [
         {
           label: "保存密钥",
@@ -105,7 +105,7 @@ export function buildOnboarding({
     return withJourney({
       mode: "creative-brief",
       question: justInstalled
-        ? "插件已就绪。你想创作图片还是视频，准备发布到哪里，有没有参考素材？"
+        ? "Skills 已就绪。你想创作图片还是视频，准备发布到哪里，有没有参考素材？"
         : "这次想创作什么图片或视频，主要用途是什么，有没有参考素材？",
       message:
         "先把想法整理成创作简报，再检查密钥、实时模型和价格；现在不需要先懂模型或参数。",
@@ -143,7 +143,7 @@ export function buildOnboarding({
       steps: [
         {
           label: "粘贴并保存密钥",
-          detail: "权威来源：env 覆盖 > kaiyun-tools.env",
+          detail: "权威来源：env 覆盖 > credentials.env",
         },
         {
           label: "实时选型",

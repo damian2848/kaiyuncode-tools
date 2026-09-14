@@ -9,7 +9,7 @@ test("manifest exposes the four KaiyunCode workflow skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.2.4");
+  assert.equal(manifest.version, "0.3.0");
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");
@@ -21,7 +21,7 @@ test("manifest exposes the four KaiyunCode workflow skills", async () => {
   ]);
 
   const skills = {
-    "kaiyuncode-create": "../kaiyuncode-image/scripts/kaiyuncode-image.mjs",
+    "kaiyuncode-create": "scripts/kaiyuncode-image.mjs",
     "kaiyuncode-configure-agents": "scripts/configure-agents.mjs",
     "kaiyuncode-image": "scripts/kaiyuncode-image.mjs",
     "kaiyuncode-video": "scripts/kaiyuncode-video.mjs",
@@ -83,6 +83,9 @@ test("package exposes the plugin maintenance commands", async () => {
   assert.deepEqual(packageJson.scripts, {
     test: "node --test tests/*.test.mjs",
     "sync:tutorial": "node scripts/sync-production-tutorial.mjs",
-    validate: "npm test",
+    validate: "npm run check:skills && npm test",
+    "build:skills": "node scripts/build-skills.mjs",
+    "check:skills": "node scripts/build-skills.mjs --check",
+    "install:skills": "node scripts/install.mjs",
   });
 });

@@ -13,7 +13,7 @@ import {
   listImageModels,
   parseCliArguments,
   persistImageResult,
-  prepareCliInput,
+  prepareCliInput as prepareCliInputImpl,
   prepareJobSpec,
   runConcurrentImageTasks,
   runImageTask,
@@ -25,6 +25,13 @@ const productionCapabilities = JSON.parse(
     "utf8",
   ),
 );
+
+function prepareCliInput(parsed, dependencies = {}) {
+  return prepareCliInputImpl(parsed, {
+    loadCapabilities: async () => productionCapabilities,
+    ...dependencies,
+  });
+}
 
 function createImageDeps() {
   const calls = { credential: 0, catalog: 0, submit: 0, poll: 0, persist: 0 };
