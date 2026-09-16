@@ -1,4 +1,4 @@
 interface:
-  display_name: "KaiyunCode 图片创作"
-  short_description: "实时选模型和价格，完成提示词、预算确认、图片生成编辑与迭代"
-  default_prompt: "使用 $kaiyuncode-image 帮我生成或编辑图片，并先实时选模型和确认预算。"
+  display_name: "KaiyunCode 做图片"
+  short_description: "生成或修改图片，帮你准备提示词与参考素材，确认费用后开始"
+  default_prompt: "使用 $kaiyuncode-image 帮我做一张图片，先告诉我多少钱。"

@@ -1,81 +1,32 @@
 ---
 name: kaiyuncode-configure-agents
-description: Use only when the user explicitly asks to configure Codex or Claude Code to use KaiyunCode text models, change KaiyunCode provider settings, or validate an existing KaiyunCode client configuration. Do not run after install or key paste by default.
+description: "仅在用户要求把 Codex 或 Claude Code 接入 KaiyunCode、刷新模型列表或检查客户端配置时使用。安装工具或只提供 API Key 不自动触发客户端配置。"
 ---
 
-# KaiyunCode Client Configuration
+# KaiyunCode 接入设置
 
-## 确认规则
+把用户要求的接入或模型刷新直接做完，用简短中文报告结果。配置请求即授权所需写入，不额外要求确认；不要制作完整模型报表。
 
-只有提交新的生图、生视频任务需要展示预算确认卡并等待用户确认。用户已提出的安装、更新、密钥保存、配置、模型目录刷新、查询、校验、已有任务轮询和结果保存，直接执行，不再询问是否继续。缺少必要参数时可以询问信息，但不要把普通操作改成审批步骤。
+需要 Node.js 20+、Codex CLI、文件读写和联网命令执行能力。`<skill-dir>` 是本 SKILL.md 的绝对目录，正确引用含空格路径；容器或远程环境也需具备这些条件。
 
-## 运行环境
+## 配置
 
-本 Skill 可独立安装到支持 Agent Skills 的 agent；不依赖 Codex 专属工具。需要 Node.js 20+、文件读写和联网执行命令的能力。`<skill-dir>` 指当前 `SKILL.md` 所在目录，执行时替换为实际绝对路径并正确引用空格路径；输出写到用户工作目录，不写入 Skill 安装目录。若运行在容器或远程 agent，Node、素材和凭据必须位于实际执行环境中。宿主没有命令执行能力时，说明缺少的能力，不声称已生成成品。
-
-## 重要边界
-
-- **默认不要**把安装 Skills或粘贴 API Key 当成“配置 Codex / Claude Code”。
-- 安装后与日常首用：保存权威媒体密钥即可，走 `save-api-key.mjs`。
-- **只有**用户明确说要配置 Codex / Claude Code / 文本模型 / provider 时，才运行 `configure-agents.mjs`。
-
-## 权威密钥模型
-
-用户粘贴的 Key 是通用密钥来源：
-
-1. **媒体权威**：`~/.config/kaiyuncode/credentials.env`（`save-api-key.mjs`）
-2. **文本客户端**（可选）：`configure-agents.mjs` 把同一 Key 写入 Codex / Claude
-
-图片 / 视频 runner **优先 env > file**，不会因为 Claude 里有另一份旧 Key 而拒绝提交。
-
-## 未提出客户端配置请求时的密钥保存
-
-1. 先使用已有凭据或当前对话提供的 Key；缺少时才请用户把 API Key **直接粘贴到聊天框**。
-2. 收到后**只保存媒体权威凭证**：
+1. 使用已有凭据或用户已提供的 API Key，缺少时才询问；不要重复索要。通过 `KAIYUN_API_KEY` 或 stdin 提供给脚本，不放进 argv、日志或回复。没有 Key 时给出[创建入口](https://kaiyuncode.com/account/api-key)。
+2. 仅配置或刷新 Codex 时运行：
 
 ```bash
-KAIYUN_API_KEY='用户粘贴的密钥' node <skill-dir>/scripts/save-api-key.mjs
+node <skill-dir>/scripts/configure-agents.mjs --codex-only
 ```
 
-或：
+脚本读取上述密钥输入，验证模型、备份、写入目录并登录。用户要求同时配置 Codex 和 Claude Code 时省略 `--codex-only`。当前脚本没有 Claude-only 模式：只要求 Claude 时不要顺带修改 Codex。
 
-```bash
-printf '%s' '用户粘贴的密钥' | node <skill-dir>/scripts/save-api-key.mjs
-```
+3. 用户点名模型才使用 `--codex-model` / `--claude-model` 或 Claude 分档选项。渠道能力覆盖用 `--model-capabilities`；模型未知警告不阻止已授权配置。
+4. 成功后简述修改内容和备份路径，提示重启 Codex、新建会话，在 `/model` 切换模型。图片能力修复需要重新生成目录；仅更新 Skill 文件不生效。
 
-3. 告诉用户：密钥已保存，可用于图片 / 视频；**Codex / Claude Code 未改动**。
-4. 当前对话已经提出「配置 Codex」「配置 Claude」「把文本模型切到 KaiyunCode」时，收到 Key 后直接进入下节完成已有请求，不要只保存密钥就结束，也不要要求用户重复授权。
+“先预览”可先加 `--dry-run` 展示，再在同轮完成写入；只有明确“仅预览、不写入”才停止。校验、登录失败时说明错误与回滚情况。
 
-## 客户端配置（用户提出配置请求后直接完成）
+## 只保存密钥
 
-配置请求即授权写入所请求的客户端。只要求 Codex 时必须加 `--codex-only`：
+用户仅提供 Key 或安装工具时，使用 `scripts/save-api-key.mjs` 保存供图片/视频使用，不运行配置脚本。当前对话已要求客户端配置时，拿到 Key 后继续完成配置，不要求重复授权。
 
-```bash
-KAIYUN_API_KEY='用户粘贴的密钥' node <skill-dir>/scripts/configure-agents.mjs --codex-only
-```
-
-用户要求同时配置 Codex 和 Claude Code 时省略 `--codex-only`。脚本自动验证 Key、备份配置、生成模型目录、写入并登录 Codex；执行完成后报告结果和备份路径，并提示重启客户端。不要在预览后停下来索取写入确认。
-
-用户说“先展示预览”时，可以先执行 `--dry-run` 并简要展示，再在同一轮去掉该参数完成配置，不另问确认。只有用户明确说“仅预览”“不要写入”或指定只运行 `--dry-run` 时，才停在预览。
-
-模型能力未知时保留脚本的警告并继续完成配置，不把警告变成确认门槛。配置预览是执行过程中的简短说明，无需额外制作完整模型报表或可视化。
-
-用户没有密钥时再给：
-- [注册或登录](https://kaiyuncode.com/?login=1)
-- [充值余额](https://kaiyuncode.com/pricing)
-- [创建 API Key](https://kaiyuncode.com/account/api-key)
-
-## 模型覆盖
-
-仅在用户点名时使用：`--codex-model`、`--claude-model`、`--claude-opus-model`、`--claude-sonnet-model`、`--claude-haiku-model`。
-
-需要核对合并细节时再读 [references/config-formats.md](references/config-formats.md)。
-
-## 禁止事项
-
-- 不要在安装后默认执行 `configure-agents.mjs`。
-- 不要自己手改配置文件；一律走 bundled script。
-- 不要把 API Key 写进 argv、日志或聊天回复正文。
-- 不要在已粘贴 Key 的情况下再要求用户去终端输入一遍。
-
-凭据目录可用 `KAIYUN_HOME` 覆盖，文件名固定为 `credentials.env`。新文件不存在时依次读取 `~/.codex/kaiyun-tools.env`、`~/.codex/kaiyun-video.env`（尊重 `CODEX_HOME`），再按原有规则尝试 Codex / Claude 的 KaiyunCode 凭据。安装或保存媒体 Key 不会配置任何 agent 的文本模型。
+自带脚本负责配置合并、备份和恢复，不手改配置文件。详细字段、凭据来源和恢复机制见[配置说明](references/config-formats.md)。只有新的生图、生视频任务需要预算确认卡；本 Skill 的配置、刷新和校验不需要。

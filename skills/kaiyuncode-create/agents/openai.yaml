@@ -1,4 +1,4 @@
 interface:
   display_name: "KaiyunCode 创作助手"
-  short_description: "从创意梳理到实时选模、预算确认、生成交付和持续迭代的完整引导"
-  default_prompt: "使用 $kaiyuncode-create 带我从创意开始完成一次 KaiyunCode 图片或视频创作。"
+  short_description: "用中文说想法，帮你选模型、准备素材，确认费用后生成图片或视频"
+  default_prompt: "使用 $kaiyuncode-create 帮我把想法做成图片或视频，先给我方案和费用。"

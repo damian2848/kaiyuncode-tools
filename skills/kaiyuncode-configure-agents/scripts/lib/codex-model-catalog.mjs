@@ -34,6 +34,16 @@ function readField(sources, keys) {
   return undefined;
 }
 
+export function modelSupportsResponses(model) {
+  const apis = readField([model, model.metadata].filter(object), ["supportedWireApis", "supported_wire_apis"]);
+  // Missing/empty protocol metadata is unspecified in the legacy platform API.
+  if (apis == null) return true;
+  if (!Array.isArray(apis) || apis.some((api) => typeof api !== "string" || !api.trim())) {
+    throw new Error(`Invalid supported wire APIs for ${model.id}`);
+  }
+  return apis.length === 0 || apis.includes("responses");
+}
+
 const contextKeys = ["context_window", "contextWindow", "context_length", "max_input_tokens"];
 const levelKeys = ["supported_reasoning_levels", "supported_reasoning_efforts", "reasoning_efforts"];
 const defaultKeys = ["default_reasoning_level", "default_reasoning_effort"];
@@ -41,7 +51,9 @@ const defaultKeys = ["default_reasoning_level", "default_reasoning_effort"];
 function capabilitySource(source) {
   if (!object(source)) return null;
   const normalized = { ...source };
-  const profile = source.reasoningConfig ?? source.reasoningProfile;
+  // The public profile is resolved for the exposed protocols; the stored
+  // administrator config can describe capabilities unavailable on those APIs.
+  const profile = Object.hasOwn(source, "reasoningProfile") ? source.reasoningProfile : source.reasoningConfig;
   if (profile !== undefined) {
     if (!object(profile) || !["standard", "claude-adaptive", "claude-effort-budget", "claude-budget", "unknown"].includes(profile.kind)) throw new Error("Invalid reasoning capability profile");
     // Only standard levels are compatible with Responses reasoning.effort.
@@ -52,9 +64,6 @@ function capabilitySource(source) {
     if (!defaultKeys.some((key) => Object.hasOwn(source, key))) {
       normalized.default_reasoning_level = profile.kind === "standard" ? profile.defaultEffort ?? null : null;
     }
-    // The new public contract omits unconfirmed context. Do not resurrect an
-    // old bundled limit after the server explicitly publishes its capabilities.
-    if (Object.hasOwn(source, "reasoningProfile") && !contextKeys.some((key) => Object.hasOwn(source, key))) normalized.context_window = null;
   }
   return normalized;
 }
@@ -81,13 +90,23 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
   if (!(availableModels instanceof Map) || !object(capabilities)) throw new Error("Invalid model catalog inputs");
   const models = [];
   const warnings = [];
-  const entries = [...availableModels.values()].filter((model) => !modelIsExplicitlyNonText(model));
+  const entries = [...availableModels.values()].filter((model) => {
+    if (modelIsExplicitlyNonText(model)) return false;
+    if (modelSupportsResponses(model)) return true;
+    warnings.push(`${model.id}: excluded from Codex catalog; supported wire APIs do not include responses`);
+    return false;
+  });
   entries.sort((a, b) => a.id === b.id ? 0 : a.id === preferredModel ? -1 : b.id === preferredModel ? 1 : a.id < b.id ? -1 : 1);
   for (const model of entries) {
     const id = model.id;
     if (typeof id !== "string" || !id.trim() || id.trim() !== id || /[\u0000-\u001f\u007f]/u.test(id)) throw new Error("Invalid model identifier in catalog");
     if (Object.hasOwn(capabilities, id) && !object(capabilities[id])) throw new Error(`Invalid capabilities for ${id}`);
-    const sources = [capabilities[id], model, model.metadata, CODEX_MODEL_PROFILES[id]].map(capabilitySource).filter(object);
+    const runtimeSources = [model, model.metadata].filter(object);
+    // Unknown public context blocks only the bundled snapshot, not a confirmed
+    // value elsewhere in the same response or an explicit operator override.
+    const publicContext = runtimeSources.some((source) => Object.hasOwn(source, "reasoningProfile"))
+      ? { context_window: null } : null;
+    const sources = [capabilities[id], ...runtimeSources, publicContext, CODEX_MODEL_PROFILES[id]].map(capabilitySource).filter(object);
     const context = tokenCount(readField(sources, contextKeys), id);
     const reasoning = levels(readField(sources, levelKeys), id);
     let defaultEffort = readField(sources, defaultKeys);
@@ -96,12 +115,13 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
     if (!reasoning?.some((level) => level.effort === defaultEffort)) defaultEffort = null;
     if (reasoning === null) warnings.push(`${id}: reasoning levels are unverified; leaving effort unset`);
     if (context === null) warnings.push(`${id}: context window is unverified; Codex will use its fallback until metadata is supplied`);
-    const input = readField(sources, ["input_modalities"]);
-    if (input !== undefined && (!Array.isArray(input) || !input.includes("text"))) throw new Error(`Invalid input modalities for ${id}`);
+    const input = readField(sources, ["input_modalities", "inputModalities"]);
+    if (input !== undefined && (!Array.isArray(input) || !input.includes("text") || input.some((value) => typeof value !== "string"))) throw new Error(`Invalid input modalities for ${id}`);
+    if (input === undefined) warnings.push(`${id}: image input capability is unverified; using text only until input_modalities is supplied`);
     const summaries = readField(sources, ["supports_reasoning_summaries"]);
     const verbosity = readField(sources, ["support_verbosity"]);
     if ([summaries, verbosity].some((value) => value !== undefined && typeof value !== "boolean")) throw new Error(`Invalid capability boolean for ${id}`);
-    const displayName = [model.display_name, model.title, model.name, id].find((value) => typeof value === "string" && value.trim())?.trim();
+    const displayName = [...runtimeSources.flatMap((source) => [source.display_name, source.title, source.name]), id].find((value) => typeof value === "string" && value.trim())?.trim();
     models.push({
       slug: id,
       display_name: displayName,
@@ -120,11 +140,11 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
       support_verbosity: verbosity ?? false,
       default_reasoning_summary: "none",
       prefer_websockets: false,
-      input_modalities: input?.filter((value) => ["text", "image"].includes(value)) ?? ["text"],
+      input_modalities: input ? [...new Set(input.filter((value) => ["text", "image"].includes(value)))] : ["text"],
       experimental_supported_tools: [],
       truncation_policy: { mode: "tokens", limit: 10000 },
     });
   }
-  if (!models.length) throw new Error("No account-available text models for the Codex catalog");
+  if (!models.length) throw new Error("No account-available text models compatible with Responses for the Codex catalog");
   return { catalog: { models }, warnings };
 }

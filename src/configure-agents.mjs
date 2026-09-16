@@ -11,7 +11,7 @@ import {
   getDefaultCredentialFilePath,
   saveApiKeyFile,
 } from "../shared/credentials.mjs";
-import { buildCodexModelCatalog, modelIsExplicitlyNonText } from "../shared/codex-model-catalog.mjs";
+import { buildCodexModelCatalog, modelIsExplicitlyNonText, modelSupportsResponses } from "../shared/codex-model-catalog.mjs";
 import { redactSensitive } from "../shared/redaction.mjs";
 import { mergeClaudeSettings, mergeCodexConfig } from "../shared/toml-edit.mjs";
 
@@ -307,6 +307,9 @@ export async function configureAgents(options = {}) {
       ["Claude Haiku", claudeHaikuModel],
     ] : []),
   ]);
+  if (!modelSupportsResponses(availableModels.get(codexModel))) {
+    throw new Error(`Codex model ${codexModel} does not support the Responses API declared by GET /v1/models`);
+  }
   const capabilities = options.modelCapabilitiesFile
     ? JSON.parse(await fsImpl.readFile(options.modelCapabilitiesFile, "utf8"))
     : options.modelCapabilities ?? {};

@@ -1,16 +1,16 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.4.1",
-  "description": "使用 KaiyunCode 创作图片和视频，并配置 Codex 文本模型目录。",
+  "version": "0.5.0",
+  "description": "用中文做图片、做视频，轻松接入 KaiyunCode 模型。",
   "author": {
     "name": "KaiyunCode"
   },
   "homepage": "https://kaiyuncode.com/docs",
   "skills": "./skills/",
   "interface": {
-    "displayName": "KaiyunCode 创作工具",
-    "shortDescription": "图片与视频创作、实时选型和预算确认，以及 Codex 文本模型目录。",
-    "longDescription": "从创意简报、实时模型与价格选择、素材准备和预算确认，到异步生成、成品交付及迭代。用户明确要求时可配置 Codex / Claude Code，并生成包含账户可用文本模型及平台能力声明的 Codex 模型目录。",
+    "displayName": "KaiyunCode 助手",
+    "shortDescription": "做图片、做视频、接入模型，直接说需求就行。",
+    "longDescription": "帮你选模型、写提示词，确认费用后生成图片或视频；也能按需接入 Codex / Claude Code，刷新可用模型并保留已支持的图片输入。",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [
@@ -19,9 +19,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "带我从一个想法开始完成 KaiyunCode 图片或视频创作",
-      "查看 KaiyunCode 当前可用的图片和视频模型与价格",
-      "使用 KaiyunCode 编辑我的图片或视频并先确认预算"
+      "用 KaiyunCode 帮我做一张海报，先告诉我多少钱",
+      "用 KaiyunCode 把我的产品图做成展示视频，先给我方案和费用",
+      "帮我把 Codex 接入 KaiyunCode，让我能切换可用模型"
     ]
   }
 }

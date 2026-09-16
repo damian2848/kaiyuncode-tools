@@ -1,5 +1,28 @@
 # 安装、迁移与宿主兼容
 
+## 指定版本与单独安装
+
+固定安装本次发布版本：
+
+```bash
+git clone --branch v0.5.0 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
+cd kaiyuncode-tools
+node scripts/install.mjs --agent codex
+```
+
+默认安装创作助手、图片、视频和客户端配置四个独立 Skills，日常直接说需求即可。需要精简安装时，可以只装一个；每个 Skill 自带运行脚本，不依赖其他 Skill 才能执行本职任务：
+
+```bash
+# 只做图片和视频
+node scripts/install.mjs --agent codex --skill kaiyuncode-create
+
+# 只配置客户端、刷新 Codex 模型
+node scripts/install.mjs --agent codex --skill kaiyuncode-configure-agents
+
+# 预览安装位置，不写入
+node scripts/install.mjs --agent codex --dry-run
+```
+
 ## 默认目录和 profile
 
 统一安装器支持重复 `--agent`，例如 `node scripts/install.mjs --agent claude --agent hermes`。`--agent all` 写入五个宿主目录；不带参数或 `--agent universal` 只写入 `~/.agents/skills`。
@@ -72,3 +95,15 @@ Node 安装器使用完整目录复制，不依赖符号链接。可以删除用
 - [Hermes 技能实现与目录](https://github.com/NousResearch/hermes-agent/blob/main/tools/skills_tool.py)
 
 验证范围是上述目录映射和独立脚本运行；宿主版本、沙箱权限和 UI 展示仍需在目标环境中确认。当前不宣称所有同名产品或纯网页聊天客户端都具备 Skill 执行能力。
+
+## 开发与验证
+
+`src/` 和 `shared/` 是源码；`skills/*/scripts/` 是随仓库分发的独立副本，不要直接修改生成文件。
+
+```bash
+npm run build:skills
+npm run validate
+KAIYUN_TEST_CODEX=1 node --test tests/codex-catalog-cli.test.mjs
+```
+
+CI 使用 Linux / macOS 和 Node.js 20 / 22。测试使用固定数据与模拟请求；可选 Codex 验证使用临时 HOME 和本机 Responses 服务，检查模型列表及图片请求，不调用付费上游。`npm run sync:tutorial` 可联网刷新图片、视频教程适配器快照。

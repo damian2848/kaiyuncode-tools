@@ -61,6 +61,28 @@ function validatingFetch(expectedKey = API_KEY) {
   };
 }
 
+test("Codex rejects a selected Chat-only model before writes while Claude can still use Messages", async (t) => {
+  const fixture = await createConfigFixture(t);
+  const models = [
+    { id: "gpt-5.6-sol", type: "text", supportedWireApis: ["responses"] },
+    { id: "chat-only", type: "text", supportedWireApis: ["chat_completions"] },
+    { id: "claude-opus-4-8", type: "text", supportedWireApis: ["anthropic_messages"] },
+  ];
+  const options = {
+    ...fixture,
+    fetchImpl: async () => jsonResponse({ object: "list", data: models }),
+    spawnImpl: async () => assert.fail("must not start client processes"),
+  };
+  await assert.rejects(configureAgents({ ...options, codexModel: "chat-only" }), /does not support the Responses API/);
+  assert.equal(await fs.readFile(fixture.codexConfig, "utf8"), fixture.originalCodex);
+  assert.equal(await fs.readFile(fixture.claudeSettings, "utf8"), fixture.originalClaude);
+  assert.deepEqual((await fs.readdir(fixture.codexHome)).sort(), ["auth.json", "config.toml"]);
+  const { preview } = await configureAgents({ ...options, dryRun: true });
+  assert.equal(preview.claude.model, "claude-opus-4-8");
+  assert.deepEqual(preview.codex.catalog.models.map((model) => model.slug), ["gpt-5.6-sol"]);
+  assert.ok(preview.codex.warnings.some((warning) => warning.startsWith("chat-only: excluded")));
+});
+
 test("preflight rejects an auth symlink before backups, writes, or processes", async (t) => {
   const fixture = await createConfigFixture(t);
   const external = join(fixture.root, "external-auth.json");

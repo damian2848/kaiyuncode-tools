@@ -26,4 +26,25 @@ add(["grok-4.6"], null, four, "high");
 add(["deepseek-v4-flash", "deepseek-v4-pro"], 1048576, ["low", "high", "max"], "high");
 add(["deepseek-v4.1-flash"], null, ["low", "high", "max"], "high");
 
+// Native Codex CLI 0.154.0 model/list snapshot, checked 2026-09-16.
+// Missing /v1/models modality metadata must not disable these image inputs.
+// Exact IDs only; explicit platform/operator modality restrictions still win.
+const nativeCodexVision = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2"];
+// Provider documentation and the platform's pinned capability table, checked
+// 2026-09-16. Sources and exact platform variant mappings are documented.
+const providerVision = [
+  "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+  "claude-sonnet-4-6", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1",
+  "gemini-3.1-flash-lite", "gemini-3.6-flash-tiered", "gemini-3.7-flash-tiered", "gemini-3.8-flash-tiered",
+  "grok-4.5", "grok-4.6", "kimi-k3", "glm-5.3-flash", "MiniMax-M3",
+  "deepseek-v4-flash", "deepseek-v4.1-flash",
+];
+for (const id of [...nativeCodexVision, ...providerVision]) {
+  profiles[id] = { ...profiles[id], input_modalities: ["text", "image"] };
+}
+// Explicitly text-only in the provider documentation; no family extrapolation.
+for (const id of ["glm-5.3", "deepseek-v4-pro"]) {
+  profiles[id] = { ...profiles[id], input_modalities: ["text"] };
+}
+
 export const CODEX_MODEL_PROFILES = profiles;

@@ -1,4 +1,4 @@
 interface:
-  display_name: "KaiyunCode 客户端配置"
-  short_description: "仅在明确要求时配置 Codex 和 Claude Code 的文本模型"
-  default_prompt: "使用 $kaiyuncode-configure-agents 把我的 Codex 和 Claude Code 配置为使用 KaiyunCode。"
+  display_name: "KaiyunCode 接入设置"
+  short_description: "按你的要求接入 Codex 或刷新模型列表，保留已支持的图片输入"
+  default_prompt: "使用 $kaiyuncode-configure-agents 把我的 Codex 接入 KaiyunCode。"

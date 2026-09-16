@@ -4,6 +4,48 @@ import { buildCodexModelCatalog } from "../shared/codex-model-catalog.mjs";
 
 const build = (models, options) => buildCodexModelCatalog(new Map(models.map((model) => [model.id, model])), options);
 
+test("missing modality metadata preserves native Codex vision for verified exact model IDs", () => {
+  const ids = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2"];
+  const { catalog } = build(ids.map((id) => ({ id, type: "text", reasoningProfile: { kind: "unknown", levels: [] } })));
+  for (const model of catalog.models) assert.deepEqual(model.input_modalities, ["text", "image"], model.slug);
+  for (const model of build([{ id: "future-model", display_name: "gpt-6-astra" }, { id: "gpt-99" }, { id: "deepseek-v4-pro" }]).catalog.models) {
+    assert.deepEqual(model.input_modalities, ["text"], model.slug);
+  }
+});
+
+test("explicit input modalities override vision snapshots and support metadata camelCase", () => {
+  const id = "gpt-6-astra";
+  assert.deepEqual(build([{ id, input_modalities: ["text"] }]).catalog.models[0].input_modalities, ["text"]);
+  assert.deepEqual(build([{ id, metadata: { inputModalities: ["text"] } }]).catalog.models[0].input_modalities, ["text"]);
+  assert.deepEqual(build([{ id, input_modalities: ["text", "image"] }], {
+    capabilities: { [id]: { inputModalities: ["text"] } },
+  }).catalog.models[0].input_modalities, ["text"]);
+  assert.deepEqual(build([{ id: "custom-vision", metadata: { inputModalities: ["text", "image", "image", "audio"] } }]).catalog.models[0].input_modalities, ["text", "image"]);
+  assert.throws(() => build([{ id, inputModalities: ["image"] }]), /Invalid input modalities/);
+});
+
+test("verified non-GPT vision models retain images without extrapolating other versions", () => {
+  const ids = [
+    "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+    "claude-sonnet-4-6", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1",
+    "gemini-3.1-flash-lite", "gemini-3.6-flash-tiered", "gemini-3.7-flash-tiered", "gemini-3.8-flash-tiered",
+    "grok-4.5", "grok-4.6", "kimi-k3", "glm-5.3-flash", "MiniMax-M3",
+    "deepseek-v4-flash", "deepseek-v4.1-flash",
+  ];
+  for (const id of ids) {
+    const { catalog, warnings } = build([{ id, type: "text", supportedWireApis: ["responses"] }]);
+    assert.deepEqual(catalog.models[0].input_modalities, ["text", "image"], id);
+    assert.ok(!warnings.some((warning) => warning.includes("image input capability")), id);
+    assert.deepEqual(build([{ id, metadata: { input_modalities: ["text"] } }]).catalog.models[0].input_modalities, ["text"], id);
+  }
+  const { catalog, warnings } = build([{ id: "glm-5.3" }, { id: "deepseek-v4-pro" }, { id: "claude-opus-99" }, { id: "unknown", display_name: "kimi-k3" }]);
+  assert.ok(catalog.models.every((model) => JSON.stringify(model.input_modalities) === '["text"]'));
+  assert.ok(warnings.some((warning) => warning.startsWith("unknown: image input capability")));
+  assert.ok(!warnings.some((warning) => warning.startsWith("glm-5.3: image input capability")));
+  const filtered = build([{ id: "grok-4.6" }, { id: "gemini-3.8-flash-tiered", supportedWireApis: ["chat_completions"] }]);
+  assert.deepEqual(filtered.catalog.models.map((model) => model.slug), ["grok-4.6"]);
+});
+
 test("all account text models are listed, including multimodal input and unknown providers", () => {
   const { catalog, warnings } = build([
     { id: "gpt-5.6-sol" },
@@ -103,4 +145,49 @@ test("invalid metadata fails before a misleading catalog can be installed", () =
   assert.throws(() => build([{ id: "test", supported_reasoning_levels: "high" }]), /reasoning levels/);
   assert.throws(() => build([{ id: "test", supported_reasoning_levels: ["bad\nvalue"] }]), /reasoning effort/);
   assert.throws(() => build([{ id: "only-image", type: "image" }]), /No account-available text models/);
+});
+
+test("public wire APIs exclude text models unavailable through Responses while preserving legacy discovery", () => {
+  const { catalog, warnings } = build([
+    { id: "chat-only", type: "text", supportedWireApis: ["chat_completions"] },
+    { id: "messages-only", type: "text", metadata: { supported_wire_apis: ["anthropic_messages"] } },
+    { id: "compatible", type: "text", supportedWireApis: ["responses", "chat_completions"] },
+    { id: "legacy" },
+    { id: "unspecified", supportedWireApis: [] },
+    { id: "root-wins", supportedWireApis: ["chat_completions"], metadata: { supportedWireApis: ["responses"] } },
+  ]);
+  assert.deepEqual(catalog.models.map((model) => model.slug), ["compatible", "legacy", "unspecified"]);
+  for (const id of ["chat-only", "messages-only", "root-wins"]) {
+    assert.ok(warnings.some((warning) => warning.startsWith(`${id}: excluded`) && warning.includes("responses")));
+  }
+  assert.throws(() => build([{ id: "chat-only", type: "text", supportedWireApis: ["chat_completions"] }]), /No account-available text models compatible with Responses/);
+  assert.throws(() => build([{ id: "invalid", type: "text", supportedWireApis: "responses" }]), /Invalid supported wire APIs/);
+});
+
+test("resolved public profile takes precedence over stored administrator config", () => {
+  const { catalog } = build([{
+    id: "gpt-5.6-sol",
+    reasoningConfig: { kind: "standard", levels: ["high"], defaultEffort: "high" },
+    reasoningProfile: { kind: "unknown", levels: [], note: "当前接口不支持配置的思考参数" },
+  }]);
+  const model = catalog.models[0];
+  assert.deepEqual(model.supported_reasoning_levels, []);
+  assert.equal(model.default_reasoning_level, null);
+  assert.equal(model.supports_reasoning_summaries, false);
+  assert.equal(model.context_window, null);
+});
+
+test("public unknown context only blocks snapshots, not confirmed metadata or operator values", () => {
+  const source = {
+    id: "gpt-5.6-sol",
+    reasoningProfile: { kind: "standard", levels: ["high"], defaultEffort: "high" },
+    metadata: { contextWindow: 64000, display_name: "公开别名" },
+  };
+  const model = build([source]).catalog.models[0];
+  assert.equal(model.context_window, 64000);
+  assert.equal(model.display_name, "公开别名");
+  assert.equal(model.slug, "gpt-5.6-sol");
+  assert.equal(build([{ ...source, context_window: null }]).catalog.models[0].context_window, null);
+  assert.equal(build([source], { capabilities: { [source.id]: { context_window: 32000 } } }).catalog.models[0].context_window, 32000);
+  assert.equal(build([{ ...source, metadata: {} }]).catalog.models[0].context_window, null);
 });
