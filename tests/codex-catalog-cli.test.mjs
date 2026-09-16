@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import test from "node:test";
+import { buildCodexModelCatalog } from "../shared/codex-model-catalog.mjs";
+
+// Opt-in: requires Codex >= 0.154.0. All inference traffic stays on loopback.
+test("real Codex loads the catalog and sends its default effort to Responses", {
+  skip: process.env.KAIYUN_TEST_CODEX !== "1", timeout: 30000,
+}, async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "kaiyun-codex-cli-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = [
+    { id: "catalog-reasoner", type: "text", context_window: 64000, supported_reasoning_levels: ["low", "high"], default_reasoning_level: "high" },
+    { id: "catalog-plain", type: "text", context_window: 16000, supported_reasoning_levels: [] },
+    { id: "catalog-no-default", type: "text", context_window: 32000, supported_reasoning_levels: ["low", "high"], default_reasoning_level: null },
+  ];
+  const { catalog } = buildCodexModelCatalog(new Map(source.map((model) => [model.id, model])));
+  const catalogPath = join(directory, "models.json");
+  await writeFile(catalogPath, JSON.stringify(catalog));
+  const requests = [];
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push({ url: req.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end('event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_test","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":0,"total_tokens":10}}}\n\n');
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  await writeFile(join(directory, "config.toml"), [
+    'model_provider = "kaiyuncode"', 'model = "catalog-reasoner"',
+    `model_catalog_json = ${JSON.stringify(catalogPath)}`, 'web_search = "disabled"',
+    '[model_providers.kaiyuncode]', 'name = "kaiyuncode"', 'wire_api = "responses"',
+    `base_url = "http://127.0.0.1:${server.address().port}/v1"`,
+    'request_max_retries = 0', 'stream_max_retries = 0',
+  ].join("\n"));
+  // Do not inherit credentials, a real HOME config, or a project.
+  const env = { PATH: process.env.PATH, HOME: directory, CODEX_HOME: directory, TMPDIR: tmpdir(), RUST_LOG: "error" };
+  const app = spawn("codex", ["app-server"], { cwd: directory, env, stdio: ["pipe", "pipe", "pipe"] });
+  t.after(() => app.kill());
+  let errors = "";
+  app.stderr.on("data", (chunk) => { errors += chunk; });
+  const send = (value) => app.stdin.write(`${JSON.stringify(value)}\n`);
+  const listed = new Promise((resolve, reject) => {
+    app.on("error", reject);
+    app.on("exit", () => reject(new Error(`app-server exited: ${errors}`)));
+    createInterface({ input: app.stdout }).on("line", (line) => {
+      const message = JSON.parse(line);
+      if (message.method === "configWarning") reject(new Error(JSON.stringify(message.params)));
+      if (message.id === 1) { send({ method: "initialized" }); send({ id: 2, method: "model/list", params: {} }); }
+      if (message.id === 2) resolve(message.result);
+    });
+  });
+  send({ id: 1, method: "initialize", params: { clientInfo: { name: "catalog-test", version: "1.0" } } });
+  const result = await listed;
+  assert.deepEqual(result.data.map((model) => model.model).sort(), ["catalog-no-default", "catalog-plain", "catalog-reasoner"]);
+  assert.equal(result.data.find((model) => model.model === "catalog-reasoner").defaultReasoningEffort, "high");
+  assert.deepEqual(result.data.find((model) => model.model === "catalog-plain").supportedReasoningEfforts, []);
+  app.kill();
+  for (const model of ["catalog-reasoner", "catalog-plain", "catalog-no-default"]) {
+    const child = spawn("codex", ["exec", "--ephemeral", "--skip-git-repo-check", "--json", "-m", model, "Reply OK without tools."], { cwd: directory, env, stdio: ["ignore", "pipe", "pipe"] });
+    t.after(() => child.kill());
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    await new Promise((resolve, reject) => { child.on("error", reject); child.on("exit", resolve); });
+    const request = requests.find((entry) => entry.body.model === model);
+    assert.ok(request, `No Responses request for ${model}: ${output}`);
+    assert.equal(request.url, "/v1/responses");
+    assert.equal(request.body.reasoning?.effort, model === "catalog-reasoner" ? "high" : undefined);
+    assert.equal(request.body.reasoning?.summary, undefined);
+  }
+});

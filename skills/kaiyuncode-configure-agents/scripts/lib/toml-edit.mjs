@@ -231,12 +231,19 @@ function scanTomlLexicalLine(line, state) {
   }
 }
 
-export function mergeCodexConfig(source, { model } = {}) {
+export function mergeCodexConfig(source, { model, catalogPath } = {}) {
   if (typeof source !== "string") throw new TypeError("Codex config must be TOML text");
   const selectedModel = assertIdentifier(model);
+  const managedFields = new Map(CODEX_ROOT_FIELDS);
+  if (catalogPath !== undefined) {
+    if (typeof catalogPath !== "string" || !catalogPath.trim() || /[\u0000-\u001f]/u.test(catalogPath)) throw new Error("Invalid model catalog path");
+    managedFields.set("model_catalog_json", JSON.stringify(catalogPath));
+    // These global overrides would mask per-model catalog settings on /model changes.
+    for (const key of ["model_reasoning_effort", "model_context_window", "model_auto_compact_token_limit", "model_verbosity", "model_supports_reasoning_summaries", "model_reasoning_summary"]) managedFields.set(key, null);
+  }
   const eol = lineEnding(source);
   const lines = splitLines(source);
-  const rootFields = new Map(CODEX_ROOT_FIELDS.map(([key]) => [key, []]));
+  const rootFields = new Map([...managedFields.keys()].map((key) => [key, []]));
   const providerFields = new Map(CODEX_PROVIDER_FIELDS.map(([key]) => [key, []]));
   let currentTable = null;
   let currentTablePath = null;
@@ -311,18 +318,22 @@ export function mergeCodexConfig(source, { model } = {}) {
     if (indexes.length > 1) throw new Error("Duplicate target field in Codex configuration");
   }
 
-  const rootValues = new Map(CODEX_ROOT_FIELDS);
+  const rootValues = new Map(managedFields);
   rootValues.set("model", JSON.stringify(selectedModel));
   const providerValues = new Map(CODEX_PROVIDER_FIELDS);
   const replaced = [...lines];
   for (const [key, indexes] of rootFields) {
-    if (indexes.length === 1) replaced[indexes[0]] = replacementLine(lines[indexes[0]], key, rootValues.get(key), eol);
+    if (indexes.length === 1) {
+      const value = rootValues.get(key);
+      const comment = findCommentSuffix(lines[indexes[0]]).trimStart();
+      replaced[indexes[0]] = value === null ? (comment ? `${comment}${eol}` : "") : replacementLine(lines[indexes[0]], key, value, eol);
+    }
   }
   for (const [key, indexes] of providerFields) {
     if (indexes.length === 1) replaced[indexes[0]] = replacementLine(lines[indexes[0]], key, providerValues.get(key), eol);
   }
 
-  const missingRoot = CODEX_ROOT_FIELDS.filter(([key]) => rootFields.get(key).length === 0)
+  const missingRoot = [...rootValues].filter(([key, value]) => value !== null && rootFields.get(key).length === 0)
     .map(([key]) => `${key} = ${rootValues.get(key)}${eol}`);
   // Prepending missing root fields keeps every unrelated source byte contiguous.
   replaced.splice(0, 0, ...missingRoot);

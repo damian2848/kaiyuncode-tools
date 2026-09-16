@@ -9,7 +9,8 @@ test("manifest exposes the four KaiyunCode workflow skills", async () => {
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
   assert.equal(manifest.name, "kaiyuncode-tools");
-  assert.equal(manifest.version, "0.3.0");
+  const packageJson = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
+  assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.author.name, "KaiyunCode");
   assert.equal(manifest.homepage, "https://kaiyuncode.com/docs");

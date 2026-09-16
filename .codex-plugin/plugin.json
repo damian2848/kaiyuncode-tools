@@ -1,7 +1,7 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.3.0",
-  "description": "全流程引导用户使用 KaiyunCode 完成图片和视频创作。",
+  "version": "0.4.0",
+  "description": "使用 KaiyunCode 创作图片和视频，并配置 Codex 文本模型目录。",
   "author": {
     "name": "KaiyunCode"
   },
@@ -9,8 +9,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "KaiyunCode 创作工具",
-    "shortDescription": "从创意梳理、实时选型和预算确认一路引导到成品交付。",
-    "longDescription": "从一个想法开始，引导用户完成创意简报、密钥准备、实时模型与价格选择、提示词和素材整理、预算确认、异步生成、成品交付及迭代。默认不改 Codex / Claude Code，任何付费提交都必须先展示 dry-run 预算确认卡并获得明确授权。",
+    "shortDescription": "图片与视频创作、实时选型和预算确认，以及 Codex 文本模型目录。",
+    "longDescription": "从创意简报、实时模型与价格选择、素材准备和预算确认，到异步生成、成品交付及迭代。用户明确要求时可配置 Codex / Claude Code，并生成包含账户可用文本模型及平台能力声明的 Codex 模型目录。",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [

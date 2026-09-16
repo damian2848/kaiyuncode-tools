@@ -1,167 +1,153 @@
 # KaiyunCode Tools
 
-让你的 AI Agent 用自然语言完成图片和视频创作。
+为你的 AI Agent 接入 KaiyunCode：用自然语言创作图片和视频，也能把账户可用的文本模型加入 Codex 的 `/model` 菜单。
 
-从一句想法开始，KaiyunCode Tools 会协助整理创意、选择当前可用的模型、查询价格、准备素材和提示词，在确认预算后生成并交付成品。
+支持 **Codex · Claude Code · Grok Build · OpenClaw · Hermes Agent**。四个独立 [Agent Skills](https://agentskills.io/specification) 自带脚本与参考资料，安装后即可使用，无需安装 npm 运行时依赖。
 
-**支持 Grok Build · Claude Code · OpenClaw · Hermes Agent · Codex**，以及其他支持 [Agent Skills](https://agentskills.io/specification) 且能执行 Node.js 脚本的 Agent。
+[安装](#安装) · [图片与视频创作](#图片与视频创作) · [Codex 模型目录](#codex-模型目录) · [API Key](#api-key) · [更新与迁移](#更新与迁移)
 
-[快速安装](#快速安装) · [开始创作](#开始创作) · [选择 Skills](#选择-skills) · [安装与迁移指南](docs/installation.md)
-
-## 能做什么
+## 功能
 
 - **图片创作**：文生图、图片编辑、多图参考、组图和电商素材。
-- **视频创作**：文生视频、图生视频、首尾帧、参考创作、续写和复刻；具体能力以实时可用模型为准。
-- **模型与价格查询**：根据用途和素材筛选可用模型，展示实时公开单价。
-- **本地素材直接使用**：图片、视频、音频和蒙版可以使用本机文件，无需自行上传对象存储。
-- **批量任务与恢复**：支持多任务并发；已有 task ID 时继续查询和保存结果。
-- **预算确认与迭代**：先展示方案和费用预览，获得明确授权后提交；修改方案后重新确认。
+- **视频创作**：文生视频、图生视频、首尾帧、参考创作、续写和复刻，具体能力以实时可用模型为准。
+- **实时选型与预算**：查询可用媒体模型和价格，整理提示词、参数及素材，预览费用后提交。
+- **本地素材与批量任务**：直接使用本机图片、视频、音频和蒙版；支持并发生成、按 task ID 恢复查询及保存结果。
+- **Codex 文本模型目录**：生成 `model_catalog_json`，按账户权限列出全部文本模型，读取平台声明的思考档位和上下文长度。
+- **客户端配置**：可单独配置 Codex，或同时配置 Codex 与 Claude Code；写入前备份，失败时回滚。
 
-每个 Skill 都包含所需脚本和参考资料，可以独立安装。媒体创作不需要切换 Agent 当前使用的文本模型。
+## 安装
 
-## 快速安装
+需要 **Node.js 20+、Git**，以及能执行命令、读写文件和访问 HTTPS 的 Agent 环境。一键安装适用于 macOS、Linux 和 Windows WSL。
 
-需要 **Node.js 20+**。一键安装另需 **Git**，适用于 macOS、Linux 和 Windows WSL；无需安装 npm 运行时依赖。
+### 一键安装
 
-以 Claude Code 为例：
+以 Codex 为例：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash -s -- --agent claude
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash -s -- --agent codex
 ```
 
-将命令中的 `claude` 替换为目标 Agent：
+替换 `--agent` 的值即可选择宿主：
 
-- `grok` → Grok Build，安装到 `~/.grok/skills/`。
-- `claude` → Claude Code，安装到 `~/.claude/skills/`。
-- `openclaw` → OpenClaw，安装到 `~/.openclaw/skills/`。
-- `hermes` → Hermes Agent，安装到 `~/.hermes/skills/`；也接受 `hermess`。
-- `codex` → Codex，安装到 `~/.agents/skills/`。
+- `codex`：安装到 `~/.agents/skills/`。
+- `claude`：安装到 `~/.claude/skills/`。
+- `grok`：安装到 `~/.grok/skills/`，对应 xAI Grok Build。
+- `openclaw`：安装到 `~/.openclaw/skills/`。
+- `hermes`：安装到 `~/.hermes/skills/`。
+- `all`：安装到以上五个目录。
 
-默认安装全部四个 Skills。只想使用完整创作助手时，可以仅安装 `kaiyuncode-create`：
+默认安装四个 Skills。安装后**新建 Agent 会话**，即可描述需求。
+
+一键命令跟随 GitHub `main`。只安装某个 Skill，可追加 `--skill`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash -s -- --agent codex --skill kaiyuncode-create
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash -s -- --agent codex --skill kaiyuncode-configure-agents
 ```
 
-安装完成后，**新建 Agent 会话**再开始使用。宿主需要具备命令执行、文件读写和 HTTPS 联网能力；纯网页聊天界面不一定具备这些能力。Grok 支持指的是 xAI Grok Build，其他同名 CLI 需自行确认 Skill 支持。
-
-### 从本地仓库安装
+### 从指定版本安装
 
 ```bash
-git clone https://github.com/damian2848/kaiyuncode-tools.git
+git clone --branch v0.4.0 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
 cd kaiyuncode-tools
-
-# 选择一个 Agent
-node scripts/install.mjs --agent claude
-
-# 或同时安装到多个 Agent
-node scripts/install.mjs --agent codex --agent hermes
-
-# 或一次安装到以上五个 Agent
-node scripts/install.mjs --agent all
+node scripts/install.mjs --agent codex
 ```
 
-安装器也支持预览、自定义目录和单独选择 Skill：
+安装器支持多宿主、预览和自定义目录：
 
 ```bash
-# 只预览安装位置
+node scripts/install.mjs --agent claude --agent hermes
 node scripts/install.mjs --agent all --dry-run
-
-# 安装到项目的技能目录
-node scripts/install.mjs --skills-dir ./.claude/skills --skill kaiyuncode-create
+node scripts/install.mjs --skills-dir ./.agents/skills --skill kaiyuncode-create
 ```
 
-不带参数时只安装到通用目录 `~/.agents/skills/`。重复运行相同安装命令可更新；本地仓库用户应先更新仓库。安装器会保护本地修改和未知来源的同名目录，普通替换失败时尝试回滚。
+不带参数时安装到 `~/.agents/skills/`。也可以完整复制 `skills/<skill-name>/` 到宿主的技能目录。Profile、环境变量、自定义目录与卸载方式见 [安装指南](docs/installation.md)。
 
-也可以将 `skills/<skill-name>/` **整个目录**复制到宿主的技能目录，保留其中的脚本和参考资料。Profile、自定义路径、冲突处理和卸载方式见 [完整安装指南](docs/installation.md)。
+## 图片与视频创作
 
-## 开始创作
-
-安装后，直接向 Agent 描述需求：
+向 Agent 说明用途、风格和素材即可：
 
 > 使用 KaiyunCode 帮我做一张咖啡品牌海报，暖色调，适合小红书。先推荐模型并估算费用。
 
 > 把这张产品图做成一段展示视频，保留产品外观。先给我方案和预算。
 
-> 查看 KaiyunCode 当前可用的图片模型和价格，暂时不用生成。
+> 查看 KaiyunCode 当前可用的视频模型和价格，暂时不用生成。
 
-Agent 会按需要推进以下流程：
+Agent 会整理创意简报，检查凭据，查询实时模型和价格，准备提示词与素材，再展示生成确认卡。确认卡包含模型、参数、参考文件、输出位置、预计费用和预算上限；明确确认后才提交付费任务。
 
-```mermaid
-flowchart LR
-  A[整理创意] --> B[检查密钥]
-  B --> C[模型与价格]
-  C --> D[方案与素材]
-  D --> E[预算确认]
-  E --> F[生成与交付]
-  F --> G[继续迭代]
+只查询模型或使用 `--dry-run` 不会发起付费生成。已有 task ID 时可继续查询结果，避免重复提交。生成能力与最终费用以平台实际支持和结算为准。
+
+## Codex 模型目录
+
+**v0.4.0 新增。** 配置工具读取 `GET /v1/models`，为当前 API Key 可用的全部文本模型生成目录，过滤图片、视频、音频、embedding 和 rerank 模型。
+
+直接向 Agent 说明：
+
+> 配置 Codex 使用 KaiyunCode，把可用的文本模型加入 /model 菜单，按平台声明设置思考强度和上下文。只配置 Codex。
+
+也可以在仓库根目录运行：
+
+```bash
+# 预览目录和配置变化
+node src/configure-agents.mjs --codex-only --dry-run
+
+# 写入配置、生成目录并登录 Codex
+node src/configure-agents.mjs --codex-only
 ```
 
-只想查询模型或价格时，流程停在查询阶段。生成前会展示确认卡，包括模型、提示词摘要、素材、参数、输出位置、预计费用和预算上限；核对后回复“确认提交”或同等明确授权。
+独立安装后，相同脚本位于 `kaiyuncode-configure-agents/scripts/configure-agents.mjs`。密钥输入方式见下节。
 
-`--dry-run` 会联网校验模型和价格，但不发起付费生成。实际费用以平台结算为准；价格或预算不明确时不会继续付费提交。任务提交状态不明时，不自动重复提交。
+默认生成 `~/.codex/kaiyuncode-model-catalog.json`，并在 `config.toml` 中设置其绝对路径；自定义 `CODEX_HOME` 时使用该目录。**重启 Codex** 后，新会话的 `/model` 即可读取列表。再次运行可刷新模型与能力。
+
+- 优先使用平台的展示别名、标准思考档位、默认值与已确认上下文，实际请求保留模型 ID。
+- 平台声明为空或未知时保留该状态；新版接口未确认上下文时，不套用旧窗口。旧接口缺少能力字段时使用内置兼容快照。
+- Claude 原生思考预算、自适应 effort 和 Ultra 协作工作流，不会被误写为普通 Responses `reasoning.effort`。
+- 清理会覆盖目录的根级思考强度、上下文与相关配置，使切换模型时使用各自能力。项目、profile 或命令行显式覆盖仍可能优先。
+- `--codex-only` 不修改 Claude Code；省略此参数时，脚本同时配置 Codex 与 Claude Code。
+
+若渠道有更具体的限制，可用 `--model-capabilities path.json` 补充能力。字段格式、来源和恢复方式见 [模型目录文档](docs/codex-model-catalog.md)。
+
+该功能已用 **Codex CLI 0.154.0** 验证；旧客户端可能需要升级。它配置的是 Codex 客户端，不会更改 ChatGPT 网页或手机应用的模型选择器。
 
 ## API Key
 
-图片和视频创作使用 **KaiyunCode API Key**。没有 Key 时，可先 [注册或登录](https://kaiyuncode.com/?login=1)，按需 [充值](https://kaiyuncode.com/pricing)，再 [创建 API Key](https://kaiyuncode.com/account/api-key)。
+需要 KaiyunCode API Key。没有 Key 时，可先 [注册或登录](https://kaiyuncode.com/?login=1)，按需 [充值](https://kaiyuncode.com/pricing)，再 [创建 API Key](https://kaiyuncode.com/account/api-key)。
 
-已有凭据时，Agent 会直接使用；缺少时，可通过宿主支持的密钥输入方式保存，或在脚本实际运行的环境中设置 `KAIYUN_API_KEY`。密钥不要写入命令行参数、日志、回复或仓库。
+媒体脚本优先使用 `KAIYUN_API_KEY`，其次使用通用凭据文件 `~/.config/kaiyuncode/credentials.env`。各 Skill 自带 `scripts/save-api-key.mjs`，可从环境变量或 stdin 保存密钥；设置 `KAIYUN_HOME` 可更改凭据目录。
 
-默认凭据文件为 `~/.config/kaiyuncode/credentials.env`，权限为 `0600`。设置 `KAIYUN_HOME` 后使用该目录下的 `credentials.env`。各 Skill 自带 `scripts/save-api-key.mjs`，接受环境变量或 stdin 输入。
+客户端配置脚本接受 `KAIYUN_API_KEY`、stdin 管道或交互式隐藏输入，不接受 `--api-key` 命令行参数。它也会保存同一密钥供媒体脚本使用。凭据文件权限为 `0600`；不要将密钥提交到仓库。
 
-凭据读取顺序：
+旧版 Codex 凭据文件和已配置的 KaiyunCode 文本客户端凭据仍可作为媒体脚本的回退来源。容器或远程 Agent 需要在实际执行环境中配置凭据、Node.js 和素材访问权限。
 
-1. `KAIYUN_API_KEY` 环境变量。
-2. 通用凭据文件。
-3. 旧版 `.codex/kaiyun-tools.env`，其次 `.codex/kaiyun-video.env`，尊重 `CODEX_HOME`。
-4. 以上都没有时，尝试 Codex / Claude 的 KaiyunCode 文本配置。
+**安装 Skills 或保存媒体密钥，不会自动切换 Agent 的文本模型。** 客户端配置仅在明确要求时执行。
 
-旧版密钥可继续使用，不自动移动或删除。容器和远程 Agent 需要在**实际执行环境**中配置凭据和 Node.js。
+## 四个独立 Skills
 
-## 选择 Skills
-
-- **[kaiyuncode-create](skills/kaiyuncode-create/SKILL.md)**：推荐入口。从想法到图片或视频成品的完整流程，内置两种媒体 Runner，可单独安装。
+- **[kaiyuncode-create](skills/kaiyuncode-create/SKILL.md)**：完整创作入口，包含图片与视频生成、预算确认、交付和迭代。
 - **[kaiyuncode-image](skills/kaiyuncode-image/SKILL.md)**：专注图片生成、编辑、多图参考和组图。
-- **[kaiyuncode-video](skills/kaiyuncode-video/SKILL.md)**：专注视频生成、参考、续写和复刻。
-- **[kaiyuncode-configure-agents](skills/kaiyuncode-configure-agents/SKILL.md)**：可选的文本客户端配置工具。用户明确要求时，预览并配置 Codex 和 Claude Code 使用 KaiyunCode；目前不配置其他 Agent 的文本 provider。
+- **[kaiyuncode-video](skills/kaiyuncode-video/SKILL.md)**：专注视频创作、本地参考素材与任务恢复。
+- **[kaiyuncode-configure-agents](skills/kaiyuncode-configure-agents/SKILL.md)**：配置 Codex / Claude Code 使用 KaiyunCode，生成 Codex 模型目录。
 
-四个 Skill 均可独立运行。安装 Skills 或保存媒体密钥，不会自动修改任何 Agent 的文本模型配置。
+其他支持 Agent Skills 且能执行 Node.js 的宿主，也可通过自定义目录安装。纯网页聊天界面不一定支持运行这些脚本；目录映射和独立运行的验证范围见 [兼容性说明](docs/installation.md#格式与来源)。
 
-## 更新与旧版迁移
+## 更新与迁移
 
-从旧版 Codex 插件迁移时，运行新的安装命令，然后在 Codex 中禁用或卸载旧插件，避免同名 Skill 重复显示。新建会话后即可继续使用已有密钥。
+重跑一键安装命令可更新至 `main` 最新版；本地安装用户需先更新仓库再运行安装器。安装器保护本地修改和未知来源的同名目录，普通替换失败时尝试回滚。更新后新建 Agent 会话；刷新 Codex 模型目录还需重新运行配置脚本并重启 Codex。
 
-仍需 Codex 插件分发的用户可以使用保留的 `.codex-plugin/plugin.json` 和 `scripts/install-codex-plugin.sh`。该旧入口仍依赖 Codex 插件命令，与通用 Skill 安装方式不同。
+从旧 Codex 插件迁移时，安装通用 Skills 后，在 Codex 中禁用或卸载旧插件，避免菜单重复。仍需插件分发时，仓库保留 `.codex-plugin/plugin.json` 和 `scripts/install-codex-plugin.sh`。详见 [更新、冲突与迁移指南](docs/installation.md)。
 
-详细步骤见 [安装、更新与迁移指南](docs/installation.md)。
-
-## 开发
+## 开发与验证
 
 ```bash
-npm run build:skills    # 构建可独立分发的 Skill 目录
-npm run validate       # 检查生成文件一致性并运行测试
-```
-
-源码与分发目录：
-
-- `src/`：图片、视频、凭据保存和客户端配置脚本的源码。
-- `shared/`：共用的 API、预算、凭据、脱敏和运行时模块。
-- `references/`：生产教程适配器快照。
-- `skills/`：可直接安装的 Skill 目录，包含生成的独立脚本和依赖。
-- `scripts/`：构建、安装和教程同步工具。
-- `tests/`：媒体流程、独立运行、凭据兼容、安装更新和回滚测试。
-
-修改 `src/`、`shared/` 或生产快照后，运行 `npm run build:skills` 并提交生成文件。不要直接修改 `skills/*/scripts/`。总控 Skill 的图片 / 视频 API 参考由对应媒体 Skill 的参考文档生成。
-
-刷新生产教程快照需要网络：
-
-```bash
-npm run sync:tutorial
 npm run build:skills
 npm run validate
+
+# 可选：使用已安装的 Codex 验证目录加载和实际请求参数
+KAIYUN_TEST_CODEX=1 node --test tests/codex-catalog-cli.test.mjs
 ```
 
-自动测试使用固定数据和模拟请求，不发起真实付费生成。CI 在 Linux / macOS 上使用 Node.js 20 / 22 验证；各宿主的目录与格式依据见 [兼容性说明](docs/installation.md#格式与来源)。
+`src/` 和 `shared/` 是脚本源码；`skills/*/scripts/` 是提交到仓库的独立分发文件。修改源码后运行 `build:skills`，不要直接修改生成文件。`npm run sync:tutorial` 可联网刷新媒体教程适配器快照。
+
+CI 使用 Linux / macOS 与 Node.js 20 / 22。自动测试使用固定数据和模拟请求；可选 Codex 测试使用临时 HOME 和本机 Responses 服务，不调用真实付费模型。
 
 ## 许可证
 

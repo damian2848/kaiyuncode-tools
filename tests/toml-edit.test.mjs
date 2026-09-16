@@ -52,6 +52,18 @@ test("Codex merge preserves unrelated CRLF text byte-for-byte", () => {
   assert.ok(!/(^|[^\r])\n/.test(output));
 });
 
+test("catalog settings remove global overrides, preserve comments and remain idempotent", () => {
+  const source = 'model = "old"\r\nmodel_reasoning_effort = "xhigh" # old effort\r\nmodel_context_window = 1000000\r\nmodel_auto_compact_token_limit = 900000\r\nmodel_verbosity = "high"\r\nmodel_supports_reasoning_summaries = true\r\nmodel_reasoning_summary = "auto"\r\n[mcp_servers.keep]\r\nurl = "https://keep.test"\r\n';
+  const options = { model: "gpt-5.6-sol", catalogPath: '/tmp/路径 with "quote"/catalog.json' };
+  const output = mergeCodexConfig(source, options);
+  assert.doesNotMatch(output, /^(model_reasoning_effort|model_context_window|model_auto_compact_token_limit|model_verbosity|model_supports_reasoning_summaries|model_reasoning_summary)\s*=/mu);
+  assert.ok(output.includes('# old effort\r\n'));
+  assert.ok(output.includes('[mcp_servers.keep]\r\nurl = "https://keep.test"'));
+  assert.ok(output.includes(`model_catalog_json = ${JSON.stringify(options.catalogPath)}\r\n`));
+  assert.equal(mergeCodexConfig(output, options), output);
+  assert.equal(spawnSync("python3", ["-c", "import sys,tomllib;tomllib.loads(sys.stdin.read())"], { input: output }).status, 0);
+});
+
 test("Codex merge fails closed on duplicate or semantically ambiguous targets", () => {
   const rejected = [
     '[model_providers.kaiyuncode]\nname = "one"\n["model_providers"."kaiyuncode"]\nname = "two"\n',

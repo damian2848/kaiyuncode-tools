@@ -11,6 +11,7 @@ import {
   getDefaultCredentialFilePath,
   saveApiKeyFile,
 } from "./lib/credentials.mjs";
+import { buildCodexModelCatalog, modelIsExplicitlyNonText } from "./lib/codex-model-catalog.mjs";
 import { redactSensitive } from "./lib/redaction.mjs";
 import { mergeClaudeSettings, mergeCodexConfig } from "./lib/toml-edit.mjs";
 
@@ -28,6 +29,7 @@ const CREDENTIAL_ENV_NAMES = new Set([
 ]);
 const FLAG_NAMES = new Map([
   ["--codex-model", "codexModel"],
+  ["--model-capabilities", "modelCapabilitiesFile"],
   ["--claude-model", "claudeModel"],
   ["--claude-opus-model", "claudeOpusModel"],
   ["--claude-sonnet-model", "claudeSonnetModel"],
@@ -53,6 +55,7 @@ async function validateCredential(apiKey, fetchImpl) {
       method: "GET",
       headers: { Authorization: `Bearer ${apiKey}` },
       redirect: "error",
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (error) {
     throw new Error(`KaiyunCode API Key validation failed: ${safeErrorMessage(error, apiKey)}`);
@@ -83,37 +86,6 @@ async function validateCredential(apiKey, fetchImpl) {
     throw new Error("KaiyunCode balance is insufficient; recharge at https://kaiyuncode.com/pricing");
   }
   throw new Error(`KaiyunCode API Key validation returned HTTP ${response.status}`);
-}
-
-function modelIsExplicitlyNonText(model) {
-  const metadata = [];
-  const sources = [model];
-  if (model.metadata && typeof model.metadata === "object" && !Array.isArray(model.metadata)) sources.push(model.metadata);
-  for (const source of sources) {
-    for (const name of ["type", "category", "modality", "output_modality", "mode", "task", "capability", "model_type"]) {
-      if (typeof source[name] === "string") metadata.push([name, source[name]]);
-    }
-    for (const name of ["modalities", "output_modalities", "capabilities"]) {
-      if (Array.isArray(source[name])) {
-        metadata.push(...source[name].filter((value) => typeof value === "string").map((value) => [name, value]));
-      }
-    }
-  }
-  if (metadata.length === 0) return false;
-  return metadata.some(([name, value]) => {
-    const normalized = value.toLowerCase();
-    const hasText = /(^|[^a-z])(text|chat|language|completion|response)([^a-z]|$)/u.test(normalized);
-    const hasNonText = /(^|[^a-z])(image|video|audio|embedding|rerank|speech)([^a-z]|$)/u.test(normalized);
-    if (!hasNonText) return false;
-    if (name === "output_modality" || name === "output_modalities") return true;
-    if (/(^|[^a-z])(text|chat|language|image|video|audio)(?:[^a-z]+)to(?:[^a-z]+)(image|video|audio|speech)([^a-z]|$)/u.test(normalized)) {
-      return true;
-    }
-    if (/(^|[^a-z])(image|video|audio|speech)([^a-z]+)(generation|generator|synthesis)([^a-z]|$)/u.test(normalized)) {
-      return true;
-    }
-    return !hasText;
-  });
 }
 
 function validateSelectedModels(models, selections) {
@@ -205,7 +177,8 @@ async function preflightTarget(fsImpl, homePath, targetPath) {
 async function preflightConfigurationPaths(fsImpl, paths) {
   await preflightTarget(fsImpl, paths.codexHome, paths.codexConfig);
   await preflightTarget(fsImpl, paths.codexHome, paths.codexAuth);
-  await preflightTarget(fsImpl, paths.claudeHome, paths.claudeSettings);
+  await preflightTarget(fsImpl, paths.codexHome, paths.codexCatalog);
+  if (!paths.codexOnly) await preflightTarget(fsImpl, paths.claudeHome, paths.claudeSettings);
 }
 
 function sanitizedProcessEnvironment(environment, apiKey, codexHome) {
@@ -304,6 +277,7 @@ export async function configureAgents(options = {}) {
   const {
     apiKey,
     dryRun = false,
+    codexOnly = false,
     codexModel = DEFAULT_CODEX_MODEL,
     claudeModel = DEFAULT_CLAUDE_MODEL,
     claudeOpusModel = claudeModel,
@@ -315,7 +289,8 @@ export async function configureAgents(options = {}) {
     now = () => new Date(),
   } = options;
   const home = options.home ?? homedir();
-  const codexHome = options.codexHome ?? join(home, ".codex");
+  const codexHome = resolve(options.codexHome ?? (options.environment ?? process.env).CODEX_HOME ?? join(home, ".codex"));
+  const codexCatalog = join(codexHome, "kaiyuncode-model-catalog.json");
   const claudeHome = options.claudeHome ?? join(home, ".claude");
   const codexConfig = options.codexConfig ?? join(codexHome, "config.toml");
   const codexAuth = options.codexAuth ?? join(codexHome, "auth.json");
@@ -325,22 +300,29 @@ export async function configureAgents(options = {}) {
   const availableModels = await validateCredential(apiKey, fetchImpl);
   validateSelectedModels(availableModels, [
     ["Codex", codexModel],
-    ["Claude main", claudeModel],
-    ["Claude Opus", claudeOpusModel],
-    ["Claude Sonnet", claudeSonnetModel],
-    ["Claude Haiku", claudeHaikuModel],
+    ...(!codexOnly ? [
+      ["Claude main", claudeModel],
+      ["Claude Opus", claudeOpusModel],
+      ["Claude Sonnet", claudeSonnetModel],
+      ["Claude Haiku", claudeHaikuModel],
+    ] : []),
   ]);
-  await preflightConfigurationPaths(fsImpl, { codexHome, claudeHome, codexConfig, codexAuth, claudeSettings });
+  const capabilities = options.modelCapabilitiesFile
+    ? JSON.parse(await fsImpl.readFile(options.modelCapabilitiesFile, "utf8"))
+    : options.modelCapabilities ?? {};
+  const { catalog, warnings } = buildCodexModelCatalog(availableModels, { capabilities, preferredModel: codexModel });
+  await preflightConfigurationPaths(fsImpl, { codexHome, claudeHome, codexConfig, codexAuth, claudeSettings, codexCatalog, codexOnly });
 
   const snapshots = await Promise.all([
     snapshotFile(fsImpl, codexConfig),
     snapshotFile(fsImpl, codexAuth),
-    snapshotFile(fsImpl, claudeSettings),
+    ...(codexOnly ? [] : [snapshotFile(fsImpl, claudeSettings)]),
+    snapshotFile(fsImpl, codexCatalog),
   ]);
   const codexSource = snapshots[0].exists ? snapshots[0].content.toString("utf8") : "";
-  const claudeSource = snapshots[2].exists ? snapshots[2].content.toString("utf8") : "{}";
-  const nextCodex = mergeCodexConfig(codexSource, { model: codexModel });
-  const nextClaude = mergeClaudeSettings(claudeSource, {
+  const claudeSource = !codexOnly && snapshots[2].exists ? snapshots[2].content.toString("utf8") : "{}";
+  const nextCodex = mergeCodexConfig(codexSource, { model: codexModel, catalogPath: codexCatalog });
+  const nextClaude = codexOnly ? null : mergeClaudeSettings(claudeSource, {
     apiKey,
     model: claudeModel,
     opusModel: claudeOpusModel,
@@ -355,8 +337,8 @@ export async function configureAgents(options = {}) {
       path: mediaCredentialPath,
       note: "Canonical image/video key file (same API Key)",
     },
-    codex: { provider: "kaiyuncode", model: codexModel, baseUrl: "https://kaiyuncode.com/v1" },
-    claude: {
+    codex: { provider: "kaiyuncode", model: codexModel, baseUrl: "https://kaiyuncode.com/v1", catalogPath: codexCatalog, modelCount: catalog.models.length, catalog, warnings },
+    claude: codexOnly ? null : {
       model: claudeModel,
       opusModel: claudeOpusModel,
       sonnetModel: claudeSonnetModel,
@@ -365,15 +347,16 @@ export async function configureAgents(options = {}) {
       authToken: "[REDACTED]",
     },
   };
-  if (dryRun) return { backups: [], codexModel, claudeModel, preview };
+  if (dryRun) return { backups: [], codexModel, claudeModel: codexOnly ? null : claudeModel, preview };
 
   let backups = [];
   try {
     await fsImpl.mkdir(codexHome, { recursive: true, mode: 0o700 });
-    await fsImpl.mkdir(claudeHome, { recursive: true, mode: 0o700 });
+    if (!codexOnly) await fsImpl.mkdir(claudeHome, { recursive: true, mode: 0o700 });
     backups = await createBackups(fsImpl, snapshots, now());
+    await atomicWrite(fsImpl, codexCatalog, `${JSON.stringify(catalog, null, 2)}\n`, MODE_PRIVATE);
     await atomicWrite(fsImpl, codexConfig, nextCodex, MODE_PRIVATE);
-    await atomicWrite(fsImpl, claudeSettings, `${JSON.stringify(nextClaude, null, 2)}\n`, MODE_PRIVATE);
+    if (!codexOnly) await atomicWrite(fsImpl, claudeSettings, `${JSON.stringify(nextClaude, null, 2)}\n`, MODE_PRIVATE);
     await saveApiKeyFile(apiKey, { path: mediaCredentialPath });
 
     const processEnv = sanitizedProcessEnvironment(options.environment ?? process.env, apiKey, codexHome);
@@ -387,16 +370,19 @@ export async function configureAgents(options = {}) {
     const strict = await spawnImpl("codex", ["--strict-config", "--version"], { env: processEnv });
     if (strict.status !== 0) throw new Error(strict.stderr || "Codex strict configuration validation failed");
 
-    const reparsedClaude = JSON.parse(await fsImpl.readFile(claudeSettings, "utf8"));
-    if (!reparsedClaude || typeof reparsedClaude !== "object" || Array.isArray(reparsedClaude)) {
-      throw new Error("Claude settings validation failed");
+    if (!codexOnly) {
+      const reparsedClaude = JSON.parse(await fsImpl.readFile(claudeSettings, "utf8"));
+      if (!reparsedClaude || typeof reparsedClaude !== "object" || Array.isArray(reparsedClaude)) {
+        throw new Error("Claude settings validation failed");
+      }
     }
     await Promise.all([
       fsImpl.chmod(codexConfig, MODE_PRIVATE),
       fsImpl.chmod(codexAuth, MODE_PRIVATE),
-      fsImpl.chmod(claudeSettings, MODE_PRIVATE),
+      ...(codexOnly ? [] : [fsImpl.chmod(claudeSettings, MODE_PRIVATE)]),
+      fsImpl.chmod(codexCatalog, MODE_PRIVATE),
     ]);
-    return { backups, codexModel, claudeModel, preview };
+    return { backups, codexModel, claudeModel: codexOnly ? null : claudeModel, preview };
   } catch (error) {
     let rollbackError;
     try {
@@ -414,8 +400,8 @@ export function parseCliArgs(args) {
   const result = {};
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === "--dry-run") {
-      result.dryRun = true;
+    if (argument === "--dry-run" || argument === "--codex-only") {
+      result[argument === "--dry-run" ? "dryRun" : "codexOnly"] = true;
       continue;
     }
     if (argument === "--api-key" || argument.startsWith("--api-key=")) {
@@ -426,7 +412,7 @@ export function parseCliArgs(args) {
     const property = FLAG_NAMES.get(flag);
     if (!property) throw new Error(`Unknown option: ${flag}`);
     const value = equals === -1 ? args[++index] : argument.slice(equals + 1);
-    if (!value || value.startsWith("--")) throw new Error(`${flag} requires a model identifier`);
+    if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
     result[property] = value;
   }
   return result;
@@ -510,7 +496,7 @@ async function main() {
   const result = await configureAgents({ ...cli, apiKey });
   const summary = cli.dryRun
     ? { dryRun: true, changes: result.preview }
-    : { configured: true, codexModel: result.codexModel, claudeModel: result.claudeModel, backups: result.backups };
+    : { configured: true, codexModel: result.codexModel, claudeModel: result.claudeModel, backups: result.backups, catalogPath: result.preview.codex.catalogPath, modelCount: result.preview.codex.modelCount, warnings: result.preview.codex.warnings };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
 

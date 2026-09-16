@@ -11,12 +11,15 @@ The script merges these root fields into `~/.codex/config.toml`:
 ```toml
 model_provider = "kaiyuncode"
 model = "gpt-5.6-sol"
-model_reasoning_effort = "xhigh"
+model_catalog_json = "/absolute/path/to/.codex/kaiyuncode-model-catalog.json"
 disable_response_storage = true
-model_verbosity = "high"
 network_access = true
 web_search = "live"
 ```
+
+The script generates that catalog from all account-available text models in `/v1/models`, excluding media, embeddings and rerank models. Restart Codex to reload it for `/model`. Runtime metadata overrides exact-ID bundled capability profiles. Unknown context windows remain null with a warning; unknown reasoning levels are not invented. The new platform contract preserves explicit null defaults and null/empty effort lists. When reasoningProfile is present but context is omitted, the old snapshot window is not restored. Only standard reasoning profiles map to Responses effort; native Claude adaptive/budget profiles and Ultra workflows do not. display_name is shown as the alias while slug keeps the request ID. `--model-capabilities path.json` accepts an object keyed by request model ID, with `context_window`, `supported_reasoning_levels`, and optionally `default_reasoning_level` to specify actual channel limits; nested reasoningConfig / reasoningProfile with kind, levels, and defaultEffort is also accepted. `--dry-run` includes the full catalog and warnings.
+
+Root overrides for `model_reasoning_effort`, `model_context_window`, `model_auto_compact_token_limit`, `model_verbosity`, `model_supports_reasoning_summaries`, and `model_reasoning_summary` are removed so switching models uses catalog capabilities. Higher-priority project/profile/CLI overrides still apply. `--codex-only` configures Codex and the catalog without requiring or modifying Claude; the API Key is still saved for media and passed to Codex login. `CODEX_HOME` is respected. Tested with Codex CLI 0.154.0; this does not change the ChatGPT web/mobile model picker.
 
 It also merges one provider table:
 
@@ -49,4 +52,4 @@ Existing target files receive timestamped `.bak.<UTC timestamp>` copies before m
 
 Before snapshots or mutation, the script checks configuration homes, target paths, and their existing path components with `lstat` and `realpath`. Symbolic links, non-directory ancestors, targets outside their configured home, and existing targets that are not regular files fail closed.
 
-If login, strict Codex validation, Claude JSON reparsing, or permission hardening fails, all three target paths return to their original contents, existence state, and modes. Error output redacts the supplied key. Backups remain available for manual recovery. `--dry-run` validates and reads only: it creates no file, backup, directory, or process.
+If login, strict Codex validation, Claude JSON reparsing, or permission hardening fails, all configuration target paths, including the model catalog return to their original contents, existence state, and modes. Error output redacts the supplied key. Backups remain available for manual recovery. `--dry-run` validates and reads only: it creates no file, backup, directory, or process.

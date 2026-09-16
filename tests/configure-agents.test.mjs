@@ -42,7 +42,7 @@ async function createConfigFixture(t) {
   await fs.writeFile(claudeSettings, originalClaude, { mode: 0o644 });
   await fs.writeFile(claudeJson, originalClaudeJson, { mode: 0o644 });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  return { root, apiKey: API_KEY, codexHome, claudeHome, codexConfig, codexAuth, claudeSettings, claudeJson, originalCodex, originalAuth, originalClaude, originalClaudeJson };
+  return { root, apiKey: API_KEY, mediaCredentialPath: join(root, "credentials.env"), codexHome, claudeHome, codexConfig, codexAuth, claudeSettings, claudeJson, originalCodex, originalAuth, originalClaude, originalClaudeJson };
 }
 
 function validatingFetch(expectedKey = API_KEY) {
@@ -393,10 +393,61 @@ test("dry-run performs no filesystem mutation and no process calls", async (t) =
   assert.equal(processCalls, 0);
   assert.deepEqual(result.backups, []);
   assert.equal(result.preview.codex.provider, "kaiyuncode");
+  assert.equal(result.preview.codex.modelCount, 5);
+  assert.equal(result.preview.codex.catalog.models[0].slug, "gpt-5.6-sol");
   assert.equal(result.preview.claude.baseUrl, "https://kaiyuncode.com");
   assert.ok(!JSON.stringify(result).includes(API_KEY));
   assert.equal(await fs.readFile(fixture.codexConfig, "utf8"), fixture.originalCodex);
   assert.equal(await fs.readFile(fixture.claudeSettings, "utf8"), fixture.originalClaude);
+});
+
+test("Codex-only config installs a catalog without requiring or modifying Claude", async (t) => {
+  const fixture = await createConfigFixture(t);
+  const result = await configureAgents({ ...fixture, codexOnly: true,
+    fetchImpl: async () => jsonResponse({ data: [
+      { id: "gpt-5.6-sol", context_window: 123456, supported_reasoning_levels: ["low", "high"] },
+      { id: "gpt-image-2", type: "image" },
+    ] }),
+    spawnImpl: async () => ({ status: 0 }),
+  });
+  const catalogPath = join(fixture.codexHome, "kaiyuncode-model-catalog.json");
+  const catalog = JSON.parse(await fs.readFile(catalogPath, "utf8"));
+  assert.equal(catalog.models.length, 1);
+  assert.equal(catalog.models[0].context_window, 123456);
+  assert.equal((await fs.stat(catalogPath)).mode & 0o777, 0o600);
+  assert.match(await fs.readFile(fixture.codexConfig, "utf8"), /model_catalog_json = /);
+  assert.equal(await fs.readFile(fixture.claudeSettings, "utf8"), fixture.originalClaude);
+  assert.equal(result.preview.claude, null);
+  assert.equal(result.claudeModel, null);
+});
+
+test("catalog participates in rollback, whether previously existing or newly created", async (t) => {
+  for (const existing of [false, true]) {
+    const fixture = await createConfigFixture(t);
+    const path = join(fixture.codexHome, "kaiyuncode-model-catalog.json");
+    if (existing) await fs.writeFile(path, '{"models":[]}\n', { mode: 0o640 });
+    await assert.rejects(configureAgents({ ...fixture, fetchImpl: validatingFetch(),
+      spawnImpl: async () => ({ status: 1, stderr: "login failed" }), now: () => FIXED_DATE,
+    }), /login failed/);
+    if (existing) {
+      assert.equal(await fs.readFile(path, "utf8"), '{"models":[]}\n');
+      assert.equal((await fs.stat(path)).mode & 0o777, 0o640);
+      assert.equal(await fs.readFile(`${path}.bak.20260711T123456789Z`, "utf8"), '{"models":[]}\n');
+    } else await assert.rejects(fs.stat(path), { code: "ENOENT" });
+  }
+});
+
+test("catalog symlinks are rejected before mutation", async (t) => {
+  const fixture = await createConfigFixture(t);
+  await fs.symlink(fixture.claudeSettings, join(fixture.codexHome, "kaiyuncode-model-catalog.json"));
+  await assert.rejects(configureAgents({ ...fixture, fetchImpl: validatingFetch(),
+    spawnImpl: async () => assert.fail("must not spawn"),
+  }), /symbolic link/);
+  assert.equal(await fs.readFile(fixture.claudeSettings, "utf8"), fixture.originalClaude);
+});
+
+test("CLI accepts catalog controls", () => {
+  assert.deepEqual(parseCliArgs(["--codex-only", "--model-capabilities=limits.json"]), { codexOnly: true, modelCapabilitiesFile: "limits.json" });
 });
 
 test("Claude model flags map only the documented settings fields", async (t) => {
