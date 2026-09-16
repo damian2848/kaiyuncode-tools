@@ -1,6 +1,6 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "使用 KaiyunCode 创作图片和视频，并配置 Codex 文本模型目录。",
   "author": {
     "name": "KaiyunCode"

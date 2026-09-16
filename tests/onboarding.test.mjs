@@ -55,7 +55,14 @@ test("pasted key with explicit agent config request enters configure mode", () =
     wantsAgentConfig: true,
   });
   assert.equal(result.mode, "quick-configure");
+  assert.equal(result.question, null);
   assert.match(result.message, /配置|Codex|Claude/);
+});
+
+test("existing credentials and a configuration request proceed without entering media confirmation", () => {
+  const result = buildOnboarding({ hasCredential: true, wantsAgentConfig: true });
+  assert.equal(result.mode, "quick-configure");
+  assert.equal(result.question, null);
 });
 
 test("only users who say they lack a key receive registration links", () => {
@@ -137,5 +144,6 @@ test("selected model advances through plan, confirmation, generation, and iterat
 test("existing non-media credential keeps the optional client configuration path", () => {
   const result = buildOnboarding({ hasCredential: true });
   assert.equal(result.mode, "verify");
+  assert.equal(result.question, null);
   assert.match(result.message, /明确要求.*配置/);
 });

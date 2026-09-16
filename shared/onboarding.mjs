@@ -54,25 +54,19 @@ export function buildOnboarding({
   if (hasResult) completed.add("generation");
   if (hasDelivered) completed.add("delivery");
 
+  if (wantsAgentConfig && (hasPastedKey || hasCredential)) {
+    return withJourney({
+      mode: "quick-configure",
+      question: null,
+      message: "凭据已就绪，直接完成用户请求的客户端配置，无需再次确认。",
+      steps: [
+        { label: "配置客户端", detail: "configure-agents.mjs；只要求 Codex 时加 --codex-only" },
+        { label: "报告结果", detail: "配置与模型目录已写入，报告备份路径并提示重启客户端" },
+      ],
+    }, completed);
+  }
+
   if (hasPastedKey) {
-    if (wantsAgentConfig) {
-      return withJourney({
-        mode: "quick-configure",
-        question: null,
-        message:
-          "已收到 API Key。先保存媒体权威密钥；用户明确要求了客户端配置，再预览 Codex / Claude Code 变更。",
-        steps: [
-          {
-            label: "保存权威媒体密钥",
-            detail: "save-api-key.mjs → ~/.config/kaiyuncode/credentials.env",
-          },
-          {
-            label: "预览客户端配置",
-            detail: "configure-agents.mjs --dry-run → 确认后写入",
-          },
-        ],
-      }, completed);
-    }
     return withJourney({
       mode: "save-key",
       question: null,
@@ -94,7 +88,7 @@ export function buildOnboarding({
   if (!forMedia && hasCredential) {
     return withJourney({
       mode: "verify",
-      question: "已检测到 KaiyunCode API Key，是否直接继续？",
+      question: null,
       message:
         "已有密钥时可跳过粘贴。只有用户明确要求时，才配置 Codex / Claude Code。",
       steps: [],

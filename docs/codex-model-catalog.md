@@ -5,9 +5,13 @@
 只配置 Codex，不要求账户拥有 Claude 模型，也不修改 Claude 设置：
 
 ```bash
-node src/configure-agents.mjs --codex-only --dry-run
 node src/configure-agents.mjs --codex-only
+
+# 仅预览时才加 --dry-run
+node src/configure-agents.mjs --codex-only --dry-run
 ```
+
+用户提出配置请求后直接执行，不增加写入确认。“先预览”表示展示后继续；“仅预览、不写入”才停止。生图、生视频的提交确认与客户端配置无关。
 
 脚本从 `KAIYUN_API_KEY`、stdin 或隐藏输入读取密钥。独立安装的 Skill 使用 `scripts/configure-agents.mjs`。不加 `--codex-only` 时，原有 Codex + Claude 配置流程也会生成目录。`--codex-model` 选择初始模型，默认仍为 `gpt-5.6-sol`；目录不限于这个初始选择。
 

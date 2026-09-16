@@ -15,6 +15,8 @@
 - **Codex 文本模型目录**：生成 `model_catalog_json`，按账户权限列出全部文本模型，读取平台声明的思考档位和上下文长度。
 - **客户端配置**：可单独配置 Codex，或同时配置 Codex 与 Claude Code；写入前备份，失败时回滚。
 
+只有提交生图、生视频任务需要确认。配置 Codex、保存密钥、刷新模型目录、查询模型与价格、恢复轮询和下载结果，按用户请求直接完成；明确要求“仅预览、不写入”时才停在预览。
+
 ## 安装
 
 需要 **Node.js 20+、Git**，以及能执行命令、读写文件和访问 HTTPS 的 Agent 环境。一键安装适用于 macOS、Linux 和 Windows WSL。
@@ -47,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/sc
 ### 从指定版本安装
 
 ```bash
-git clone --branch v0.4.0 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
+git clone --branch v0.4.1 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
 cd kaiyuncode-tools
 node scripts/install.mjs --agent codex
 ```
@@ -87,11 +89,11 @@ Agent 会整理创意简报，检查凭据，查询实时模型和价格，准�
 也可以在仓库根目录运行：
 
 ```bash
-# 预览目录和配置变化
-node src/configure-agents.mjs --codex-only --dry-run
-
-# 写入配置、生成目录并登录 Codex
+# 配置 Codex：自动备份、生成目录并登录
 node src/configure-agents.mjs --codex-only
+
+# 仅查看预览、不写入时使用
+node src/configure-agents.mjs --codex-only --dry-run
 ```
 
 独立安装后，相同脚本位于 `kaiyuncode-configure-agents/scripts/configure-agents.mjs`。密钥输入方式见下节。
