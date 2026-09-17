@@ -36,6 +36,7 @@ test("Codex merge changes only documented root keys and one provider", () => {
   assert.match(output, /^model_verbosity = "high"$/m);
   assert.match(output, /^network_access = true$/m);
   assert.match(output, /^web_search = "live"$/m);
+  assert.match(output, /\[desktop\][\s\S]*show-ultra-in-model-picker-slider = true/);
   assert.match(output, /\[model_providers\.kaiyuncode\][\s\S]*base_url = "https:\/\/kaiyuncode\.com\/v1"/);
   assert.match(output, /# provider comment stays/);
   assert.match(output, /custom_header = "keep"/);
@@ -43,6 +44,23 @@ test("Codex merge changes only documented root keys and one provider", () => {
   assert.match(output, /\[plugins\.sample\]\nenabled = true/);
   assert.equal((output.match(/\[model_providers\.kaiyuncode\]/g) ?? []).length, 1);
   assert.doesNotMatch(output, /old\.example/);
+});
+
+test("Codex merge enables the Ultra slider while preserving desktop preferences", () => {
+  const source = [
+    "[desktop]",
+    'followUpQueueMode = "steer"',
+    "show-ultra-in-model-picker-slider = false # turn on for KaiyunCode",
+    'enabled-reasoning-efforts = ["low", "high", "ultra"]',
+    "",
+  ].join("\n");
+  const output = mergeCodexConfig(source, { model: "gpt-6-astra" });
+  assert.match(output, /^show-ultra-in-model-picker-slider = true # turn on for KaiyunCode$/m);
+  assert.match(output, /^followUpQueueMode = "steer"$/m);
+  assert.match(output, /^enabled-reasoning-efforts = \["low", "high", "ultra"\]$/m);
+  assert.equal((output.match(/show-ultra-in-model-picker-slider/g) ?? []).length, 1);
+  assert.equal(mergeCodexConfig(output, { model: "gpt-6-astra" }), output);
+  assert.equal(spawnSync("python3", ["-c", "import sys,tomllib;tomllib.loads(sys.stdin.read())"], { input: output }).status, 0);
 });
 
 test("Codex merge preserves unrelated CRLF text byte-for-byte", () => {
@@ -76,6 +94,8 @@ test("Codex merge fails closed on duplicate or semantically ambiguous targets", 
     '[[model_providers.kaiyuncode]]\nname = "one"\n',
     'model.variant = "conflicts with scalar target"\n',
     '["model"]\nvariant = "conflicts with scalar target"\n',
+    '[desktop]\nshow-ultra-in-model-picker-slider = false\n[desktop]\nshow-ultra-in-model-picker-slider = true\n',
+    'desktop.show-ultra-in-model-picker-slider = false\n',
   ];
 
   for (const source of rejected) {

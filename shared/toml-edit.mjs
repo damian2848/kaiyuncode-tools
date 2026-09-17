@@ -15,6 +15,10 @@ const CODEX_PROVIDER_FIELDS = [
   ["requires_openai_auth", "true"],
 ];
 
+const CODEX_DESKTOP_FIELDS = [
+  ["show-ultra-in-model-picker-slider", "true"],
+];
+
 function assertIdentifier(value, label = "model") {
   if (
     typeof value !== "string" ||
@@ -245,10 +249,13 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
   const lines = splitLines(source);
   const rootFields = new Map([...managedFields.keys()].map((key) => [key, []]));
   const providerFields = new Map(CODEX_PROVIDER_FIELDS.map(([key]) => [key, []]));
+  const desktopFields = new Map(CODEX_DESKTOP_FIELDS.map(([key]) => [key, []]));
   let currentTable = null;
   let currentTablePath = null;
   let providerHeaderIndex = null;
   let providerEndIndex = lines.length;
+  let desktopHeaderIndex = null;
+  let desktopEndIndex = lines.length;
   const lexical = { multiline: null, squareDepth: 0, curlyDepth: 0 };
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -263,15 +270,19 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
         throw new Error("Ambiguous table conflicts with a target Codex root field");
       }
       currentTablePath = table.path;
+      if (providerHeaderIndex !== null && providerEndIndex === lines.length) providerEndIndex = index;
+      if (desktopHeaderIndex !== null && desktopEndIndex === lines.length) desktopEndIndex = index;
       if (samePath(table.path, ["model_providers", "kaiyuncode"])) {
         if (table.array) throw new Error("Ambiguous KaiyunCode provider array table");
         if (providerHeaderIndex !== null) throw new Error("Duplicate KaiyunCode provider table");
         providerHeaderIndex = index;
         currentTable = "provider";
-      } else {
-        if (providerHeaderIndex !== null && providerEndIndex === lines.length) providerEndIndex = index;
-        currentTable = "other";
-      }
+      } else if (samePath(table.path, ["desktop"])) {
+        if (table.array) throw new Error("Ambiguous Codex desktop array table");
+        if (desktopHeaderIndex !== null) throw new Error("Duplicate Codex desktop table");
+        desktopHeaderIndex = index;
+        currentTable = "desktop";
+      } else currentTable = "other";
       continue;
     }
 
@@ -284,6 +295,7 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
     if (!path) throw new Error("Ambiguous TOML assignment syntax");
     const targetsRoot = currentTable === null && path.length === 1 && rootFields.has(path[0]);
     const targetsProvider = currentTable === "provider" && path.length === 1 && providerFields.has(path[0]);
+    const targetsDesktop = currentTable === "desktop" && path.length === 1 && desktopFields.has(path[0]);
     if (currentTable === null) {
       if (path.length > 1 && rootFields.has(path[0])) {
         throw new Error("Ambiguous dotted key conflicts with a target Codex root field");
@@ -294,19 +306,27 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
       if (path.length === 1 && path[0] === "model_providers") {
         throw new Error("Ambiguous inline model provider configuration");
       }
+      if (path.length > 1 && path[0] === "desktop") {
+        throw new Error("Ambiguous dotted Codex desktop configuration");
+      }
       if (path.length === 1 && rootFields.has(path[0])) rootFields.get(path[0]).push(index);
     } else if (currentTable === "provider") {
       if (path.length > 1 && providerFields.has(path[0])) {
         throw new Error("Ambiguous dotted key in KaiyunCode provider table");
       }
       if (providerFields.has(path[0])) providerFields.get(path[0]).push(index);
+    } else if (currentTable === "desktop") {
+      if (path.length > 1 && desktopFields.has(path[0])) {
+        throw new Error("Ambiguous dotted key in Codex desktop table");
+      }
+      if (desktopFields.has(path[0])) desktopFields.get(path[0]).push(index);
     } else if (samePath(currentTablePath, ["model_providers"])) {
       if (path[0] === "kaiyuncode") {
         throw new Error("Ambiguous inline or dotted KaiyunCode provider configuration");
       }
     }
     scanTomlLexicalLine(lines[index], lexical);
-    if ((targetsRoot || targetsProvider) && (lexical.multiline || lexical.squareDepth > 0 || lexical.curlyDepth > 0)) {
+    if ((targetsRoot || targetsProvider || targetsDesktop) && (lexical.multiline || lexical.squareDepth > 0 || lexical.curlyDepth > 0)) {
       throw new Error("Ambiguous multiline value for a target Codex field");
     }
   }
@@ -314,13 +334,14 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
     throw new Error("Ambiguous unterminated multiline TOML value");
   }
 
-  for (const indexes of [...rootFields.values(), ...providerFields.values()]) {
+  for (const indexes of [...rootFields.values(), ...providerFields.values(), ...desktopFields.values()]) {
     if (indexes.length > 1) throw new Error("Duplicate target field in Codex configuration");
   }
 
   const rootValues = new Map(managedFields);
   rootValues.set("model", JSON.stringify(selectedModel));
   const providerValues = new Map(CODEX_PROVIDER_FIELDS);
+  const desktopValues = new Map(CODEX_DESKTOP_FIELDS);
   const replaced = [...lines];
   for (const [key, indexes] of rootFields) {
     if (indexes.length === 1) {
@@ -332,31 +353,41 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
   for (const [key, indexes] of providerFields) {
     if (indexes.length === 1) replaced[indexes[0]] = replacementLine(lines[indexes[0]], key, providerValues.get(key), eol);
   }
+  for (const [key, indexes] of desktopFields) {
+    if (indexes.length === 1) replaced[indexes[0]] = replacementLine(lines[indexes[0]], key, desktopValues.get(key), eol);
+  }
 
   const missingRoot = [...rootValues].filter(([key, value]) => value !== null && rootFields.get(key).length === 0)
     .map(([key]) => `${key} = ${rootValues.get(key)}${eol}`);
   // Prepending missing root fields keeps every unrelated source byte contiguous.
   replaced.splice(0, 0, ...missingRoot);
 
-  if (providerHeaderIndex === null) {
-    if (replaced.length > 0 && !replaced.at(-1).endsWith(eol)) replaced[replaced.length - 1] += eol;
-    if (replaced.length > 0 && lineBody(replaced.at(-1)) !== "") replaced.push(eol);
-    replaced.push(`[model_providers.kaiyuncode]${eol}`);
-    for (const [key, value] of CODEX_PROVIDER_FIELDS) replaced.push(`${key} = ${value}${eol}`);
-  } else {
-    const adjustedProviderEnd = providerEndIndex + missingRoot.length;
-    const missingProvider = CODEX_PROVIDER_FIELDS.filter(([key]) => providerFields.get(key).length === 0)
-      .map(([key, value]) => `${key} = ${value}${eol}`);
-    if (
-      missingProvider.length > 0 &&
-      adjustedProviderEnd === replaced.length &&
-      replaced.length > 0 &&
-      !replaced.at(-1).endsWith(eol)
-    ) {
+  const tableInsertions = [];
+  const missingProvider = CODEX_PROVIDER_FIELDS.filter(([key]) => providerFields.get(key).length === 0)
+    .map(([key, value]) => `${key} = ${value}${eol}`);
+  if (providerHeaderIndex !== null && missingProvider.length > 0) {
+    tableInsertions.push({ index: providerEndIndex + missingRoot.length, fields: missingProvider });
+  }
+  const missingDesktop = CODEX_DESKTOP_FIELDS.filter(([key]) => desktopFields.get(key).length === 0)
+    .map(([key, value]) => `${key} = ${value}${eol}`);
+  if (desktopHeaderIndex !== null && missingDesktop.length > 0) {
+    tableInsertions.push({ index: desktopEndIndex + missingRoot.length, fields: missingDesktop });
+  }
+  for (const insertion of tableInsertions.sort((left, right) => right.index - left.index)) {
+    if (insertion.index === replaced.length && replaced.length > 0 && !replaced.at(-1).endsWith(eol)) {
       replaced[replaced.length - 1] += eol;
     }
-    replaced.splice(adjustedProviderEnd, 0, ...missingProvider);
+    replaced.splice(insertion.index, 0, ...insertion.fields);
   }
+
+  const appendTable = (header, fields) => {
+    if (replaced.length > 0 && !replaced.at(-1).endsWith(eol)) replaced[replaced.length - 1] += eol;
+    if (replaced.length > 0 && lineBody(replaced.at(-1)) !== "") replaced.push(eol);
+    replaced.push(`${header}${eol}`);
+    for (const [key, value] of fields) replaced.push(`${key} = ${value}${eol}`);
+  };
+  if (desktopHeaderIndex === null) appendTable("[desktop]", CODEX_DESKTOP_FIELDS);
+  if (providerHeaderIndex === null) appendTable("[model_providers.kaiyuncode]", CODEX_PROVIDER_FIELDS);
   return replaced.join("");
 }
 

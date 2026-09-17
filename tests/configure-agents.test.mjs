@@ -329,7 +329,9 @@ test("successful configuration validates, backs up, uses stdin, and locks modes"
     assert.equal((await fs.stat(backup.backupPath)).mode & 0o777, 0o600);
   }
   assert.equal(await fs.readFile(result.backups[0].backupPath, "utf8"), fixture.originalCodex);
-  assert.match(await fs.readFile(fixture.codexConfig, "utf8"), /\[mcp_servers\.keep\]/);
+  const configuredCodex = await fs.readFile(fixture.codexConfig, "utf8");
+  assert.match(configuredCodex, /\[mcp_servers\.keep\]/);
+  assert.match(configuredCodex, /\[desktop\][\s\S]*show-ultra-in-model-picker-slider = true/);
   assert.equal(JSON.parse(await fs.readFile(fixture.claudeSettings, "utf8")).permissions.allow[0], "Read");
   assert.equal(await fs.readFile(fixture.claudeJson, "utf8"), fixture.originalClaudeJson);
   assert.equal(calls.length, 2);
@@ -437,7 +439,9 @@ test("Codex-only config installs a catalog without requiring or modifying Claude
   assert.equal(catalog.models.length, 1);
   assert.equal(catalog.models[0].context_window, 123456);
   assert.equal((await fs.stat(catalogPath)).mode & 0o777, 0o600);
-  assert.match(await fs.readFile(fixture.codexConfig, "utf8"), /model_catalog_json = /);
+  const configuredCodex = await fs.readFile(fixture.codexConfig, "utf8");
+  assert.match(configuredCodex, /model_catalog_json = /);
+  assert.match(configuredCodex, /\[desktop\][\s\S]*show-ultra-in-model-picker-slider = true/);
   assert.equal(await fs.readFile(fixture.claudeSettings, "utf8"), fixture.originalClaude);
   assert.equal(result.preview.claude, null);
   assert.equal(result.claudeModel, null);

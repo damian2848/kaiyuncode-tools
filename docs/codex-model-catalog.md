@@ -63,7 +63,7 @@ node src/configure-agents.mjs --codex-only --model-capabilities ./model-capabili
 
 旧目录已经写入 `["text"]` 的用户，需要用更新后的工具重新生成目录，并重启 Codex、新建会话；只更新脚本不会修改已有目录。
 
-为使切换模型时能力随之生效，配置流程删除根级 `model_reasoning_effort`、`model_context_window`、`model_auto_compact_token_limit`、`model_verbosity`、`model_supports_reasoning_summaries` 和 `model_reasoning_summary`。项目配置、配置档案或命令行的显式覆盖仍可能优先于目录。
+为使切换模型时能力随之生效，配置流程删除根级 `model_reasoning_effort`、`model_context_window`、`model_auto_compact_token_limit`、`model_verbosity`、`model_supports_reasoning_summaries` 和 `model_reasoning_summary`。同时会在 `[desktop]` 中写入 `show-ultra-in-model-picker-slider = true`，让已声明 Ultra 工作流的模型在选择器滑块中默认显示 Ultra。项目配置、配置档案或命令行的显式覆盖仍可能优先于目录。
 
 ## 快照依据
 
