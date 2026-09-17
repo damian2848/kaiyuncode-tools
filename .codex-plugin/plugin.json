@@ -1,6 +1,6 @@
 {
   "name": "kaiyuncode-tools",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "用中文做图片、做视频，轻松接入 KaiyunCode 模型。",
   "author": {
     "name": "KaiyunCode"
