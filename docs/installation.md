@@ -5,7 +5,7 @@
 固定安装本次发布版本：
 
 ```bash
-git clone --branch v0.5.1 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
+git clone --branch v0.5.2 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
 cd kaiyuncode-tools
 node scripts/install.mjs --agent codex
 ```

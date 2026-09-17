@@ -10,7 +10,7 @@
     "check:skills": "node scripts/build-skills.mjs --check",
     "install:skills": "node scripts/install.mjs"
   },
-  "version": "0.5.1",
+  "version": "0.5.2",
   "engines": {
     "node": ">=20"
   }

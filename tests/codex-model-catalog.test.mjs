@@ -127,6 +127,27 @@ test("new platform metadata remains authoritative for unknown context, empty/nat
   assert.ok(warnings.some((warning) => warning.startsWith("gpt-5.5: reasoning")));
 });
 
+test("verified Ultra workflows use Codex multi-agent runtime metadata", () => {
+  const { catalog } = build([{
+    id: "gpt-6-astra",
+    reasoningProfile: {
+      kind: "standard",
+      levels: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      workflows: ["ultra"],
+      multiAgentVersion: "v2",
+      multiAgentReasoningEffort: "xhigh",
+    },
+    supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"],
+    default_reasoning_level: "medium",
+  }]);
+  const astra = catalog.models[0];
+  assert.deepEqual(astra.supported_reasoning_levels.map((level) => level.effort), ["low", "medium", "high", "xhigh", "max", "ultra"]);
+  assert.equal(astra.default_reasoning_level, "medium");
+  assert.equal(astra.multi_agent_version, "v2");
+  assert.equal(astra.multi_agent_reasoning_effort, "xhigh");
+});
+
 test("nested administrator configuration uses standard effort only and overrides runtime metadata", () => {
   const model = { id: "gpt-5.6-sol", context_window: 128000, supported_reasoning_levels: ["low", "high"], default_reasoning_level: "high" };
   for (const kind of ["claude-adaptive", "claude-effort-budget", "claude-budget", "unknown", "standard"]) {

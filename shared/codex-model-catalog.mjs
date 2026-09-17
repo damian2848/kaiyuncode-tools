@@ -47,7 +47,10 @@ export function modelSupportsResponses(model) {
 const contextKeys = ["context_window", "contextWindow", "context_length", "max_input_tokens"];
 const levelKeys = ["supported_reasoning_levels", "supported_reasoning_efforts", "reasoning_efforts"];
 const defaultKeys = ["default_reasoning_level", "default_reasoning_effort"];
+const multiAgentVersionKeys = ["multi_agent_version", "multiAgentVersion"];
+const multiAgentReasoningEffortKeys = ["multi_agent_reasoning_effort", "multiAgentReasoningEffort"];
 const reasoningProfileKinds = new Set(["standard", "claude-adaptive", "claude-effort-budget", "claude-budget", "gemini-thinking", "minimax-thinking", "unknown"]);
+const multiAgentVersions = new Set(["v1", "v2"]);
 
 function capabilitySource(source) {
   if (!object(source)) return null;
@@ -64,6 +67,13 @@ function capabilitySource(source) {
     }
     if (!defaultKeys.some((key) => Object.hasOwn(source, key))) {
       normalized.default_reasoning_level = profile.kind === "standard" ? profile.defaultEffort ?? null : null;
+    }
+    if (Array.isArray(profile.workflows) && profile.workflows.includes("ultra")) {
+      normalized.ultra_workflow = true;
+      const multiAgentVersion = readField([profile, source], multiAgentVersionKeys);
+      const multiAgentReasoningEffort = readField([profile, source], multiAgentReasoningEffortKeys);
+      if (multiAgentVersion !== undefined) normalized.multi_agent_version = multiAgentVersion;
+      if (multiAgentReasoningEffort !== undefined) normalized.multi_agent_reasoning_effort = multiAgentReasoningEffort;
     }
   }
   return normalized;
@@ -109,7 +119,20 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
       ? { context_window: null } : null;
     const sources = [capabilities[id], ...runtimeSources, publicContext, CODEX_MODEL_PROFILES[id]].map(capabilitySource).filter(object);
     const context = tokenCount(readField(sources, contextKeys), id);
-    const reasoning = levels(readField(sources, levelKeys), id);
+    let reasoning = levels(readField(sources, levelKeys), id);
+    const ultraWorkflow = sources.some((source) => source.ultra_workflow === true);
+    const multiAgentVersion = readField(sources, multiAgentVersionKeys);
+    const multiAgentReasoningEffort = readField(sources, multiAgentReasoningEffortKeys);
+    let ultra = null;
+    if (ultraWorkflow) {
+      const effortIsSupported = reasoning?.some((level) => level.effort === multiAgentReasoningEffort);
+      if (multiAgentVersions.has(multiAgentVersion) && effortIsSupported) {
+        ultra = { version: multiAgentVersion, reasoningEffort: multiAgentReasoningEffort };
+        if (!reasoning.some((level) => level.effort === "ultra")) reasoning = [...reasoning, { effort: "ultra", description: descriptions.ultra }];
+      } else {
+        warnings.push(`${id}: Ultra workflow is unavailable in Codex until multi-agent runtime metadata and its underlying reasoning effort are supplied`);
+      }
+    }
     let defaultEffort = readField(sources, defaultKeys);
     const defaultUnset = defaultEffort === null;
     // A runtime effort list can narrow the bundled profile. Never keep its stale default.
@@ -129,6 +152,7 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
       description: `KaiyunCode · ${displayName}${context === null ? " · 上下文长度待确认" : ""}`,
       default_reasoning_level: defaultUnset ? null : defaultEffort ?? reasoning?.find((level) => level.effort === "medium")?.effort ?? reasoning?.[0]?.effort ?? null,
       supported_reasoning_levels: reasoning ?? [],
+      ...(ultra ? { multi_agent_version: ultra.version, multi_agent_reasoning_effort: ultra.reasoningEffort } : {}),
       context_window: context,
       visibility: "list",
       supported_in_api: true,
