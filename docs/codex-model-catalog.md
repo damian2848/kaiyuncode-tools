@@ -31,7 +31,7 @@ node src/configure-agents.mjs --codex-only --dry-run
 
 平台源码的新版 `/v1/models` 契约包含 `display_name`、`reasoningProfile`、`supported_reasoning_levels` 和 `default_reasoning_level`；管理员确认上下文后返回 `context_window`。2026-09-16 本次线上只读核验的响应包含展示名称、分类和协议，但尚未包含思考能力与上下文字段；生成器兼容两种响应，不把源码契约视作已上线能力。
 
-兼容字段优先；同一来源同时包含 `reasoningProfile` 和 `reasoningConfig` 时，使用按实际开放协议解析后的 `reasoningProfile`，避免管理员配置覆盖平台返回的“未知”状态。新版 `reasoningProfile` 存在但根字段和 `metadata` 均未声明上下文时，不再回填旧快照窗口；`metadata` 中已确认的窗口以及显式覆盖仍有效，显式 `null` 仍表示未知。展示别名也支持从 `metadata` 读取，实际请求始终使用原始 ID。旧版接口没有能力声明时才使用内置兼容快照。
+兼容字段优先；同一来源同时包含 `reasoningProfile` 和 `reasoningConfig` 时，使用按实际开放协议解析后的 `reasoningProfile`，避免管理员配置覆盖平台返回的“未知”状态。`standard`、`gemini-thinking`、`minimax-thinking`、Claude 原生类型和 `unknown` 都可以安全读取；只有平台明确给出的 `supported_reasoning_levels` 才会进入 Codex 的 Responses 档位。新版 `reasoningProfile` 存在但根字段和 `metadata` 均未声明上下文时，不再回填旧快照窗口；`metadata` 中已确认的窗口以及显式覆盖仍有效，显式 `null` 仍表示未知。展示别名也支持从 `metadata` 读取，实际请求始终使用原始 ID。旧版接口没有能力声明时才使用内置兼容快照。
 
 未核实的上下文写为 `null`，预览和成功输出包含 `warnings`，模型描述注明“上下文长度待确认”。此时 Codex 使用自身回退窗口，不能视作渠道承诺。未核实的思考能力不注入 effort。只有 `standard` 档位可映射至 Responses 的 `reasoning.effort`；Claude 原生 adaptive / effort-budget / budget 能力不映射为此字段，因此 Claude 保持无可选档位，除非平台明确配置为兼容的 standard 模式。固定档位模型 `gemini-3.1-pro-high` 同样不展示可变档位。
 

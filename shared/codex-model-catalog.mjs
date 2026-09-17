@@ -47,6 +47,7 @@ export function modelSupportsResponses(model) {
 const contextKeys = ["context_window", "contextWindow", "context_length", "max_input_tokens"];
 const levelKeys = ["supported_reasoning_levels", "supported_reasoning_efforts", "reasoning_efforts"];
 const defaultKeys = ["default_reasoning_level", "default_reasoning_effort"];
+const reasoningProfileKinds = new Set(["standard", "claude-adaptive", "claude-effort-budget", "claude-budget", "gemini-thinking", "minimax-thinking", "unknown"]);
 
 function capabilitySource(source) {
   if (!object(source)) return null;
@@ -55,7 +56,7 @@ function capabilitySource(source) {
   // administrator config can describe capabilities unavailable on those APIs.
   const profile = Object.hasOwn(source, "reasoningProfile") ? source.reasoningProfile : source.reasoningConfig;
   if (profile !== undefined) {
-    if (!object(profile) || !["standard", "claude-adaptive", "claude-effort-budget", "claude-budget", "unknown"].includes(profile.kind)) throw new Error("Invalid reasoning capability profile");
+    if (!object(profile) || !reasoningProfileKinds.has(profile.kind)) throw new Error("Invalid reasoning capability profile");
     // Only standard levels are compatible with Responses reasoning.effort.
     // Native Claude effort/budgets and client workflows are separate protocols.
     if (!levelKeys.some((key) => Object.hasOwn(source, key))) {

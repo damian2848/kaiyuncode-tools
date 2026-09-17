@@ -19,6 +19,7 @@ const MODE_PRIVATE = 0o600;
 const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
 const DEFAULT_CLAUDE_MODEL = "claude-opus-4-8";
 const MODELS_URL = "https://kaiyuncode.com/v1/models";
+const MODEL_CATALOG_TIMEOUT_MS = 30_000;
 const CREDENTIAL_ENV_NAMES = new Set([
   "KAIYUN_API_KEY",
   "KAIYUNCODE_API_KEY",
@@ -55,7 +56,7 @@ async function validateCredential(apiKey, fetchImpl) {
       method: "GET",
       headers: { Authorization: `Bearer ${apiKey}` },
       redirect: "error",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(MODEL_CATALOG_TIMEOUT_MS),
     });
   } catch (error) {
     throw new Error(`KaiyunCode API Key validation failed: ${safeErrorMessage(error, apiKey)}`);

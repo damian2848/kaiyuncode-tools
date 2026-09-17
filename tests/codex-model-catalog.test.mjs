@@ -138,6 +138,28 @@ test("nested administrator configuration uses standard effort only and overrides
   }
 });
 
+test("new Gemini and MiniMax reasoning profiles preserve the platform's compatibility fields", () => {
+  const { catalog } = build([
+    {
+      id: "gemini-3.6-flash-tiered",
+      reasoningProfile: { kind: "gemini-thinking", levels: ["minimal", "low", "medium", "high"], defaultEffort: "medium" },
+      supported_reasoning_levels: ["minimal", "low", "medium", "high"],
+      default_reasoning_level: "medium",
+    },
+    {
+      id: "MiniMax-M3",
+      reasoningProfile: { kind: "minimax-thinking", levels: [], thinkingModes: ["adaptive", "disabled"] },
+      supported_reasoning_levels: [],
+      default_reasoning_level: null,
+    },
+  ]);
+  const models = new Map(catalog.models.map((model) => [model.slug, model]));
+  assert.deepEqual(models.get("gemini-3.6-flash-tiered").supported_reasoning_levels.map((level) => level.effort), ["minimal", "low", "medium", "high"]);
+  assert.equal(models.get("gemini-3.6-flash-tiered").default_reasoning_level, "medium");
+  assert.deepEqual(models.get("MiniMax-M3").supported_reasoning_levels, []);
+  assert.equal(models.get("MiniMax-M3").default_reasoning_level, null);
+});
+
 test("invalid metadata fails before a misleading catalog can be installed", () => {
   for (const value of [0, -1, "128k", 1.5, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => build([{ id: "test", context_window: value }]), /context window/);
