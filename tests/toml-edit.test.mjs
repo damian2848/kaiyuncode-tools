@@ -12,6 +12,8 @@ test("Codex merge changes only documented root keys and one provider", () => {
     "# keep this comment",
     'model = "old" # replaced target',
     'model_provider = "openai"',
+    'disable_response_storage = true # legacy field',
+    'network_access = true',
     'approval_policy = "on-request"',
     "",
     "[model_providers.kaiyuncode]",
@@ -32,10 +34,10 @@ test("Codex merge changes only documented root keys and one provider", () => {
   assert.match(output, /^model_provider = "kaiyuncode"$/m);
   assert.match(output, /^model = "gpt-5\.6-sol" # replaced target$/m);
   assert.match(output, /^model_reasoning_effort = "xhigh"$/m);
-  assert.match(output, /^disable_response_storage = true$/m);
   assert.match(output, /^model_verbosity = "high"$/m);
-  assert.match(output, /^network_access = true$/m);
   assert.match(output, /^web_search = "live"$/m);
+  assert.doesNotMatch(output, /^(disable_response_storage|network_access)\s*=/m);
+  assert.match(output, /# legacy field/);
   assert.match(output, /\[desktop\][\s\S]*show-ultra-in-model-picker-slider = true/);
   assert.match(output, /\[model_providers\.kaiyuncode\][\s\S]*base_url = "https:\/\/kaiyuncode\.com\/v1"/);
   assert.match(output, /# provider comment stays/);

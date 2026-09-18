@@ -2,10 +2,12 @@ const CODEX_ROOT_FIELDS = [
   ["model_provider", '"kaiyuncode"'],
   ["model", null],
   ["model_reasoning_effort", '"xhigh"'],
-  ["disable_response_storage", "true"],
   ["model_verbosity", '"high"'],
-  ["network_access", "true"],
   ["web_search", '"live"'],
+  // These legacy fields are no longer recognized by Codex. Keep them managed
+  // as null to remove values written by prior KaiyunCode tool releases.
+  ["disable_response_storage", null],
+  ["network_access", null],
 ];
 
 const CODEX_PROVIDER_FIELDS = [

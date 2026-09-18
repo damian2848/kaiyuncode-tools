@@ -117,14 +117,38 @@ test("new platform metadata remains authoritative for unknown context, empty/nat
   const sol = models.get("gpt-5.6-sol");
   assert.equal(sol.context_window, null);
   assert.equal(sol.default_reasoning_level, null);
-  assert.deepEqual(sol.supported_reasoning_levels.map((level) => level.effort), ["high"]);
+  assert.deepEqual(sol.supported_reasoning_levels.map((level) => level.effort), ["high", "ultra"]);
   assert.equal(sol.display_name, "编码模型");
   assert.doesNotMatch(sol.description, /gpt-5.6-sol/);
-  assert.ok(!JSON.stringify(sol).includes("ultra"));
+  assert.equal(sol.multi_agent_version, undefined);
+  assert.equal(sol.multi_agent_reasoning_effort, undefined);
   assert.equal(models.get("claude-opus-4-8").context_window, 128000);
   assert.equal(models.get("claude-opus-4-8").supports_reasoning_summaries, false);
   assert.deepEqual(models.get("gpt-5.5").supported_reasoning_levels, []);
   assert.ok(warnings.some((warning) => warning.startsWith("gpt-5.5: reasoning")));
+});
+
+test("Ultra workflows remain selectable without optional multi-agent runtime metadata", () => {
+  const { catalog, warnings } = build([
+    {
+      id: "gpt-5.6-sol",
+      reasoningProfile: { kind: "standard", levels: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low", workflows: ["ultra"] },
+      supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"],
+      default_reasoning_level: "low",
+    },
+    {
+      id: "gpt-5.6-terra",
+      reasoningProfile: { kind: "standard", levels: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium", workflows: ["ultra"] },
+      supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+      default_reasoning_level: "medium",
+    },
+  ]);
+  for (const model of catalog.models) {
+    assert.ok(model.supported_reasoning_levels.some((level) => level.effort === "ultra"));
+    assert.equal(model.multi_agent_version, undefined);
+    assert.equal(model.multi_agent_reasoning_effort, undefined);
+  }
+  assert.ok(!warnings.some((warning) => warning.includes("Ultra workflow is unavailable")));
 });
 
 test("verified Ultra workflows use Codex multi-agent runtime metadata", () => {

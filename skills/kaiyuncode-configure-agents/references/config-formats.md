@@ -14,8 +14,6 @@ The script merges these root fields into `~/.codex/config.toml`:
 model_provider = "kaiyuncode"
 model = "gpt-5.6-sol"
 model_catalog_json = "/absolute/path/to/.codex/kaiyuncode-model-catalog.json"
-disable_response_storage = true
-network_access = true
 web_search = "live"
 ```
 

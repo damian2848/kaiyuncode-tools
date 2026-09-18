@@ -125,12 +125,15 @@ export function buildCodexModelCatalog(availableModels, { capabilities = {}, pre
     const multiAgentReasoningEffort = readField(sources, multiAgentReasoningEffortKeys);
     let ultra = null;
     if (ultraWorkflow) {
-      const effortIsSupported = reasoning?.some((level) => level.effort === multiAgentReasoningEffort);
+      // Match Sub2API's Codex manifest: Ultra is advertised as a selectable
+      // client workflow even when the model does not publish an explicit
+      // multi-agent runtime version or its underlying reasoning effort.
+      if (!reasoning?.some((level) => level.effort === "ultra")) {
+        reasoning = [...(reasoning ?? []), { effort: "ultra", description: descriptions.ultra }];
+      }
+      const effortIsSupported = reasoning.some((level) => level.effort === multiAgentReasoningEffort);
       if (multiAgentVersions.has(multiAgentVersion) && effortIsSupported) {
         ultra = { version: multiAgentVersion, reasoningEffort: multiAgentReasoningEffort };
-        if (!reasoning.some((level) => level.effort === "ultra")) reasoning = [...reasoning, { effort: "ultra", description: descriptions.ultra }];
-      } else {
-        warnings.push(`${id}: Ultra workflow is unavailable in Codex until multi-agent runtime metadata and its underlying reasoning effort are supplied`);
       }
     }
     let defaultEffort = readField(sources, defaultKeys);
