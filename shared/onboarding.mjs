@@ -1,3 +1,5 @@
+import { installationGuide } from "./installation-guide.mjs";
+
 const JOURNEY = [
   ["brief", "创意简报"],
   ["credential", "凭据就绪"],
@@ -60,9 +62,18 @@ export function buildOnboarding({
       question: null,
       message: "凭据已就绪，直接完成用户请求的客户端配置，无需再次确认。",
       steps: [
-        { label: "配置客户端", detail: "configure-agents.mjs；只要求 Codex 时加 --codex-only" },
+        { label: "配置客户端", detail: "configure-agents.mjs；Codex 使用 --codex-only，OpenClaw 使用 --openclaw-only，仅保留 KaiyunCode 时再加 --replace-providers" },
         { label: "报告结果", detail: "配置与模型目录已写入，报告备份路径并提示重启客户端" },
       ],
+    }, completed);
+  }
+
+  if (wantsAgentConfig) {
+    return withJourney({
+      mode: "client-credential",
+      question: "接入客户端需要 KaiyunCode API Key，请提供已有密钥。",
+      message: "收到后继续完成已请求的客户端配置；没有密钥可先创建。",
+      steps: [{ label: "创建 API Key", url: "https://kaiyuncode.com/account/api-key" }],
     }, completed);
   }
 
@@ -82,6 +93,15 @@ export function buildOnboarding({
           detail: "运行 --list-models 获取当前模型和价格",
         },
       ],
+    }, completed);
+  }
+
+  if (justInstalled && !forMedia && !wantsAgentConfig && !hasCreativeBrief) {
+    return withJourney({
+      mode: "tool-introduction",
+      question: "你想先创作图片、制作视频，还是接入聊天模型？",
+      message: installationGuide(),
+      steps: [],
     }, completed);
   }
 

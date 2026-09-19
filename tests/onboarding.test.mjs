@@ -147,3 +147,22 @@ test("existing non-media credential keeps the optional client configuration path
   assert.equal(result.question, null);
   assert.match(result.message, /明确要求.*配置/);
 });
+
+test("installation presents creation and model setup choices without requiring credentials first", () => {
+  for (const hasCredential of [false, true]) {
+    const result = buildOnboarding({ justInstalled: true, hasCredential });
+    assert.equal(result.mode, "tool-introduction");
+    assert.match(result.message, /图片/);
+    assert.match(result.message, /视频/);
+    assert.match(result.message, /OpenClaw/);
+    assert.match(result.message, /模型.*价格/);
+    assert.match(result.question, /接入聊天模型/);
+  }
+});
+
+test("explicit client setup without a credential does not enter media onboarding", () => {
+  const result = buildOnboarding({ justInstalled: true, wantsAgentConfig: true });
+  assert.equal(result.mode, "client-credential");
+  assert.match(result.question, /API Key/);
+  assert.doesNotMatch(result.question, /创作/);
+});

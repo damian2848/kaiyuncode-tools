@@ -14,6 +14,7 @@ import {
 import { buildCodexModelCatalog, modelIsExplicitlyNonText, modelSupportsResponses } from "./lib/codex-model-catalog.mjs";
 import { redactSensitive } from "./lib/redaction.mjs";
 import { mergeClaudeSettings, mergeCodexConfig } from "./lib/toml-edit.mjs";
+import { buildOpenClawModels, mergeOpenClawConfig } from "./lib/openclaw-config.mjs";
 
 const MODE_PRIVATE = 0o600;
 const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
@@ -29,6 +30,7 @@ const CREDENTIAL_ENV_NAMES = new Set([
   "CLAUDE_CODE_OAUTH_TOKEN",
 ]);
 const FLAG_NAMES = new Map([
+  ["--openclaw-model", "openclawModel"],
   ["--codex-model", "codexModel"],
   ["--model-capabilities", "modelCapabilitiesFile"],
   ["--claude-model", "claudeModel"],
@@ -275,6 +277,11 @@ export async function runProcess(command, args, options = {}) {
 }
 
 export async function configureAgents(options = {}) {
+  if (options.openclawOnly && options.codexOnly) throw new Error("--openclaw-only and --codex-only are mutually exclusive");
+  if (options.replaceProviders && !options.openclawOnly) throw new Error("--replace-providers requires --openclaw-only");
+  if (options.openclawModel && !options.openclawOnly) throw new Error("--openclaw-model requires --openclaw-only");
+  if (options.openclawOnly && ["codexModel", "claudeModel", "claudeOpusModel", "claudeSonnetModel", "claudeHaikuModel", "modelCapabilitiesFile", "modelCapabilities"].some((key) => options[key] !== undefined)) throw new Error("OpenClaw mode accepts only --openclaw-model; capabilities come from the public API");
+  if (options.openclawOnly) return configureOpenClaw(options);
   const {
     apiKey,
     dryRun = false,
@@ -400,12 +407,70 @@ export async function configureAgents(options = {}) {
   }
 }
 
+async function configureOpenClaw(options) {
+  const { apiKey, dryRun = false, fsImpl = fs, fetchImpl = globalThis.fetch, spawnImpl = runProcess, now = () => new Date() } = options;
+  assertSecret(apiKey);
+  const environment = options.environment ?? process.env;
+  const stateDir = resolve(options.openclawHome ?? environment.OPENCLAW_STATE_DIR ?? join(options.home ?? homedir(), ".openclaw"));
+  const configPath = resolve(options.openclawConfig ?? environment.OPENCLAW_CONFIG_PATH ?? join(stateDir, "openclaw.json"));
+  await preflightTarget(fsImpl, stateDir, configPath);
+  const configSnapshot = await snapshotFile(fsImpl, configPath);
+  let current;
+  try { current = configSnapshot.exists ? JSON.parse(configSnapshot.content.toString("utf8")) : {}; }
+  catch { throw new Error("OpenClaw config must be plain JSON for this configurator; JSON5/includes must be resolved before updating"); }
+  if (JSON.stringify(current).includes('"$include"')) throw new Error("OpenClaw include-owned config must be updated at its source");
+  const { models, warnings } = buildOpenClawModels(await validateCredential(apiKey, fetchImpl));
+  const { config, primary, provider } = mergeOpenClawConfig(current, { models, apiKey, model: options.openclawModel, replaceProviders: options.replaceProviders });
+  const agentsRoot = join(stateDir, "agents");
+  const dirs = await fsImpl.readdir(agentsRoot, { withFileTypes: true }).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  const cachePaths = new Set(dirs.filter((dir) => dir.isDirectory() || dir.isSymbolicLink()).map((dir) => join(agentsRoot, dir.name, "agent", "models.json")));
+  for (const entry of [...Object.values(current.agents?.entries ?? {}), ...current.agents?.list ?? []]) {
+    if (entry.agentDir) cachePaths.add(resolve(entry.agentDir.replace(/^~(?=\/)/u, options.home ?? homedir()), "models.json"));
+  }
+  const snapshots = [configSnapshot];
+  const writes = [{ path: configPath, value: config }];
+  for (const path of cachePaths) {
+    await preflightTarget(fsImpl, stateDir, path);
+    const snapshot = await snapshotFile(fsImpl, path);
+    if (!snapshot.exists) continue;
+    const cache = JSON.parse(snapshot.content.toString("utf8"));
+    if (!cache || typeof cache !== "object" || Array.isArray(cache)) throw new Error(`Invalid OpenClaw model cache: ${path}`);
+    snapshots.push(snapshot);
+    writes.push({ path, value: { ...cache, providers: { ...(options.replaceProviders ? {} : cache.providers), kaiyuncode: provider } } });
+  }
+  const preview = { openclaw: { configPath, provider: "kaiyuncode", model: primary, modelCount: models.length, models, replaceProviders: Boolean(options.replaceProviders), cachePaths: writes.slice(1).map(({ path }) => path), warnings } };
+  if (dryRun) return { backups: [], openclawModel: primary, preview };
+  let backups = [];
+  try {
+    await fsImpl.mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
+    backups = await createBackups(fsImpl, snapshots, now());
+    // Validate in isolation before the live gateway can observe a changed file.
+    const staging = join(stateDir, `.kaiyuncode-validate-${randomUUID()}.json`);
+    try {
+      await atomicWrite(fsImpl, staging, `${JSON.stringify(config, null, 2)}\n`);
+      const result = await spawnImpl("openclaw", ["config", "validate", "--json"], {
+        env: { ...environment, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: staging },
+      });
+      if (result.status !== 0) throw new Error(result.stderr || result.stdout || "OpenClaw configuration validation failed");
+    } finally { await fsImpl.rm(staging, { force: true }); }
+    for (const { path, value } of [...writes.slice(1), writes[0]]) await atomicWrite(fsImpl, path, `${JSON.stringify(value, null, 2)}\n`);
+    return { backups, openclawModel: primary, preview };
+  } catch (error) {
+    let rollbackError;
+    try { await restoreSnapshots(fsImpl, snapshots); } catch (failure) { rollbackError = failure; }
+    throw new Error(`${safeErrorMessage(error, apiKey)}${rollbackError ? `; ${safeErrorMessage(rollbackError, apiKey)}` : ""}`);
+  }
+}
+
 export function parseCliArgs(args) {
   const result = {};
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === "--dry-run" || argument === "--codex-only") {
-      result[argument === "--dry-run" ? "dryRun" : "codexOnly"] = true;
+    if (["--dry-run", "--codex-only", "--openclaw-only", "--replace-providers"].includes(argument)) {
+      result[{ "--dry-run": "dryRun", "--codex-only": "codexOnly", "--openclaw-only": "openclawOnly", "--replace-providers": "replaceProviders" }[argument]] = true;
       continue;
     }
     if (argument === "--api-key" || argument.startsWith("--api-key=")) {
@@ -500,6 +565,7 @@ async function main() {
   const result = await configureAgents({ ...cli, apiKey });
   const summary = cli.dryRun
     ? { dryRun: true, changes: result.preview }
+    : cli.openclawOnly ? { configured: true, openclawModel: result.openclawModel, backups: result.backups, ...result.preview.openclaw, models: undefined }
     : { configured: true, codexModel: result.codexModel, claudeModel: result.claudeModel, backups: result.backups, catalogPath: result.preview.codex.catalogPath, modelCount: result.preview.codex.modelCount, warnings: result.preview.codex.warnings };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }

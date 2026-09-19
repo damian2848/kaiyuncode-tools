@@ -5,8 +5,8 @@
 固定安装本次发布版本：
 
 ```bash
-git clone --branch v0.5.4 --depth 1 https://github.com/damian2848/kaiyuncode-tools.git
-cd kaiyuncode-tools
+git clone --branch v1.0.0 --depth 1 https://github.com/damian2848/kaiyuntool.git
+cd kaiyuntool
 node scripts/install.mjs --agent codex
 ```
 
@@ -73,7 +73,7 @@ Node 安装器使用完整目录复制，不依赖符号链接。可以删除用
 3. 新建会话。旧版 `.codex/kaiyun-tools.env` 和 `kaiyun-video.env` 会作为凭据回退，无需重新粘贴 Key。
 4. 下次通过 `save-api-key.mjs` 保存 Key 时写入通用目录，旧文件保持原样。
 
-仍希望使用原 Codex personal marketplace 工作流时，可执行保留的 `bash scripts/install-codex-plugin.sh`。这是旧安装入口，仍要求 Git、Python 3 和支持插件命令的 Codex CLI；它从远程 `main` 安装到 `~/plugins/kaiyuncode-tools`。不要与直接 Skill 安装重复启用。
+仍希望使用原 Codex personal marketplace 工作流时，可执行保留的 `bash scripts/install-codex-plugin.sh`。这是旧安装入口，仍要求 Git、Python 3、Node.js 20+ 和支持插件命令的 Codex CLI；它从远程 `main` 安装到 `~/plugins/kaiyuntool`。不要与直接 Skill 安装重复启用。
 
 ## 容器、远程 agent 与权限
 

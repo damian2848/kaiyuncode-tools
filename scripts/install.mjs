@@ -5,11 +5,13 @@ import { cp, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, writeFi
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { BUNDLES, ROOT, buildSkills } from "./build-skills.mjs";
+import { installationGuide } from "../shared/installation-guide.mjs";
 
-const OWNER = "damian2848/kaiyuncode-tools";
+const OWNER = "damian2848/kaiyuntool";
+const LEGACY_OWNER = "damian2848/kaiyuncode-tools";
 const RECEIPT = ".kaiyuncode-install.json";
 export const AGENTS = ["codex", "claude", "grok", "openclaw", "hermes"];
-const HELP = `KaiyunCode universal skills installer (Node.js 20+)
+const HELP = `KaiyunTool universal skills installer (Node.js 20+)
 Usage: node scripts/install.mjs [options]
   --agent NAME       codex, claude, grok, openclaw, hermes (alias: hermess),
                      universal (default), or all; repeat to select multiple
@@ -92,7 +94,7 @@ async function checkTarget(target, name) {
   const receiptStat = await statOptional(receiptPath);
   if (!receiptStat?.isFile() || receiptStat.isSymbolicLink()) throw new Error(`Unmanaged skill already exists: ${target}`);
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
-  if (receipt.owner !== OWNER || receipt.skill !== name || receipt.schema !== 1) throw new Error(`Unmanaged skill already exists: ${target}`);
+  if (![OWNER, LEGACY_OWNER].includes(receipt.owner) || receipt.skill !== name || receipt.schema !== 1) throw new Error(`Unmanaged skill already exists: ${target}`);
   if (!sameHashes(await hashes(target), receipt.files)) throw new Error(`Local changes detected; no overwrite: ${target}`);
   return true;
 }
@@ -178,7 +180,7 @@ if (isMainModule(import.meta.url)) {
       if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Node.js 20+ is required.");
       const plan = await install(options);
       for (const item of plan) console.log(`${options.dryRun ? "[dry-run] " : ""}${item.action}: ${item.target}`);
-      console.log(options.dryRun ? "No files changed." : "Skills installed. Start a new agent session to reload skills.");
+      console.log(options.dryRun ? "No files changed." : installationGuide(plan.map(({ name }) => name)));
     }
   } catch (error) {
     console.error(`Install failed: ${error.message}`);

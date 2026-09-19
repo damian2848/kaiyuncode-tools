@@ -1,47 +1,79 @@
-# KaiyunCode Tools
+# KaiyunTool
 
-让你的 AI 助手帮你**做图片、做视频，也能接入 KaiyunCode 的聊天模型**。用中文说需求就行。
+**让 AI 助手用 KaiyunCode 做图片、做视频，也能直接切换聊天模型。**
 
-支持 Codex、Claude Code、Grok Build、OpenClaw 和 Hermes Agent。
+KaiyunTool（原 KaiyunCode Tools）是一套可独立安装的 Agent Skills。支持安装到 **Codex、Claude Code、OpenClaw、Grok Build、Hermes Agent**；聊天客户端自动接入目前支持 Codex、Claude Code 和 OpenClaw。
 
-## 1. 安装
+## 安装
 
-以 Codex 为例，把下面的命令交给 AI 助手执行，或复制到终端运行：
+把对应命令交给 AI 助手执行，或复制到终端。需要 **Node.js 20+ 和 Git**。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuncode-tools/main/scripts/install.sh | bash -s -- --agent codex
+# OpenClaw
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent openclaw
+
+# Codex
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent codex
+
+# Claude Code
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent claude
 ```
 
-用 Claude Code？把最后的 `codex` 改成 `claude`。其他助手对应 `grok`、`openclaw`、`hermes`。
+其他宿主将 `--agent` 改为 `grok` 或 `hermes`。支持 macOS、Linux、Windows WSL，也可指定自定义技能目录。
 
-需要 Node.js 20+ 和 Git；不确定是否装好，让助手先检查。支持 macOS、Linux 和 Windows WSL。装好后**新建一个对话**。
+**安装完成会显示你能使用的功能和示例。新建一个助手会话，直接用中文说需求。** 安装本身不会切换当前模型，也不会发起付费生成。
 
-## 2. 开始使用
+## 可以做什么
 
-先在 [KaiyunCode](https://kaiyuncode.com/?login=1) 注册或登录，再 [创建 API Key](https://kaiyuncode.com/account/api-key)（连接账户用的密钥），按助手提示完成设置。实际调用按平台价格扣费，可 [查看价格和充值](https://kaiyuncode.com/pricing)。
+- **图片创作与编辑**：文字生图、参考图编辑、多图参考，适合海报、商品图、插画等。
+- **视频创作**：文字或参考素材生成视频，按模型支持的能力选择时长、画幅等参数。
+- **查询与交付**：查询实时可用模型和价格，预览预算、查看任务进度、恢复下载。
+- **接入聊天模型**：为 Codex、Claude Code、OpenClaw 配置 KaiyunCode，刷新模型目录。
 
-然后直接说：
+直接试着说：
 
-> 用 KaiyunCode 帮我做一张咖啡店开业海报，暖色调，先告诉我多少钱。
+> 用 KaiyunCode 帮我做一张咖啡店开业海报，暖色调，先给我方案和费用。
 
-> 用 KaiyunCode 把这张产品图做成 5 秒展示视频，先给我方案和费用。
+> 把这张产品图做成 5 秒展示视频，先告诉我多少钱。
 
-> 帮我把 Codex 接入 KaiyunCode，让我能切换可用模型。
+> 帮我把 OpenClaw 的模型只保留 KaiyunCode，让我在界面切换全部可用文本模型。
 
-图片、视频和参考素材可以直接用本机文件。助手会帮你选模型、写提示词，**展示费用后，经你确认才开始生成**。
+> 将 Codex 接入 KaiyunCode，刷新模型列表。
 
-接入聊天模型后，重启 Codex、新建对话，在 `/model` 里切换；支持看图的模型会保留图片输入。安装工具本身不会切换你正在用的模型。
+助手会先检查已有凭据。没有密钥时，在 [KaiyunCode 注册或登录](https://kaiyuncode.com/?login=1)，然后[创建 API Key](https://kaiyuncode.com/account/api-key)，按助手提示保存即可。实际调用按平台计费，可[查看价格和充值](https://kaiyuncode.com/pricing)。
 
-## 3. 更新
+图片和视频会先展示方案及预算，**经你确认后才生成**。参考素材可直接使用本机文件；客户端接入和模型刷新按你的请求直接执行，并备份原配置。
 
-**重新运行安装命令，再新建对话**即可更新。
+## OpenClaw：一个 KaiyunCode 分组，切换全部文本模型
 
-旧版配置后不能输入图片？更新后对助手说：
+配置时实时读取账户的 `GET /v1/models`，过滤图片/视频生成、向量和重排模型。模型数量和能力随账户及平台变化，不使用固定模型清单。
 
-> 刷新我的 KaiyunCode 模型列表，修复支持看图的模型无法输入图片的问题。
+- **调用协议**：只选公开 `supportedWireApis` 声明的协议，优先 Responses，其次 Chat Completions，再其次 Anthropic Messages；每个模型单独配置。没有可用协议声明时跳过并说明原因。
+- **推理强度**：按所选协议的公开档位、默认值生成 OpenClaw 的档位映射和默认强度；未声明档位不补造，也不把 Claude 原生思考预算当作 Responses 的 effort。
+- **默认模型**：优先保留原默认模型在 KaiyunCode 上的同名版本，也可直接指定。
+- **只保留 KaiyunCode**：同步清理其他 provider、代理模型缓存、旧模型列表及白名单，保留工作区、工具、渠道和 Gateway 设置。
 
-完成后重启 Codex、新建对话。若提示安装冲突，把报错交给助手处理并保留本地修改。
+配置后重新打开模型菜单即可切换；如果 Gateway 未自动重新加载，助手会重启并验证。旧会话若固定了模型，可在该会话重新选择，或使用 `/model default`。
 
-[详细安装与常见问题](docs/installation.md) · [模型说明](docs/codex-model-catalog.md) · [版本更新](https://github.com/damian2848/kaiyuncode-tools/releases)
+OpenClaw 自身的 Ultra 多代理工作流与上游推理档位不同；原生预算/思考模式及部分 Chat 专用参数也有宿主限制。工具会报告无法表达的能力，不声称接口未提供的支持。详见 [OpenClaw 接入说明](docs/openclaw.md)。
+
+## 更新与旧版迁移
+
+升级到 1.0.0，重跑上面的安装命令即可。获取后续最新版本时，把 URL 中的 `v1.0.0` 改成 `main`。
+
+原 `kaiyuncode-tools` 安装记录仍可识别。技能目录名称 `kaiyuncode-*`、`KAIYUN_API_KEY` 和凭据路径保留兼容；无本地修改的旧技能可直接升级。遇到本地改动，安装器会停止并提示，不覆盖你的修改。通过旧 Codex 插件安装的用户需禁用旧插件，避免技能重复。
+
+## 开发
+
+```bash
+git clone https://github.com/damian2848/kaiyuntool.git
+cd kaiyuntool
+npm run build:skills
+npm run validate
+```
+
+源码位于 `src/` 和 `shared/`；`skills/*/scripts/` 为随版本发布的独立副本。修改源码后先构建再验证。测试默认使用模拟接口，不调用付费上游。
+
+[安装与迁移详情](docs/installation.md) · [OpenClaw 接入](docs/openclaw.md) · [Codex 模型说明](docs/codex-model-catalog.md) · [GitHub Releases](https://github.com/damian2848/kaiyuntool/releases)
 
 许可证：Private. All rights reserved.

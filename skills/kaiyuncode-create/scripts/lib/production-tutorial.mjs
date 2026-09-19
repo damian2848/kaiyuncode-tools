@@ -21,7 +21,7 @@ const DEFAULT_BUNDLED_PATH = fileURLToPath(
 const DEFAULT_CACHE_PATH = join(
   homedir(),
   ".cache",
-  "kaiyuncode-tools",
+  "kaiyuntool",
   "production-capabilities.json",
 );
 const RETIRED_MODELS = new Set(["gpt-image-2-max"]);

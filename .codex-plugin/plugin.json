@@ -1,16 +1,16 @@
 {
-  "name": "kaiyuncode-tools",
-  "version": "0.5.4",
-  "description": "用中文做图片、做视频，轻松接入 KaiyunCode 模型。",
+  "name": "kaiyuntool",
+  "version": "1.0.0",
+  "description": "KaiyunTool：图片、视频创作与 KaiyunCode 模型接入。",
   "author": {
     "name": "KaiyunCode"
   },
   "homepage": "https://kaiyuncode.com/docs",
   "skills": "./skills/",
   "interface": {
-    "displayName": "KaiyunCode 助手",
+    "displayName": "KaiyunTool",
     "shortDescription": "做图片、做视频、接入模型，直接说需求就行。",
-    "longDescription": "帮你选模型、写提示词，确认费用后生成图片或视频；也能按需接入 Codex / Claude Code，刷新可用模型并保留已支持的图片输入。",
+    "longDescription": "查询实时模型和价格，确认预算后生成图片或视频；按需为 Codex、Claude Code 和 OpenClaw 接入 KaiyunCode。OpenClaw 的调用协议、推理档位和默认强度来自公开模型接口。",
     "developerName": "KaiyunCode",
     "category": "Developer Tools",
     "capabilities": [
@@ -21,7 +21,8 @@
     "defaultPrompt": [
       "用 KaiyunCode 帮我做一张海报，先告诉我多少钱",
       "用 KaiyunCode 把我的产品图做成展示视频，先给我方案和费用",
-      "帮我把 Codex 接入 KaiyunCode，让我能切换可用模型"
+      "帮我把 Codex 接入 KaiyunCode，让我能切换可用模型",
+      "将 OpenClaw 接入 KaiyunCode，同步全部文本模型和推理强度"
     ]
   }
 }

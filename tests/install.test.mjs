@@ -3,6 +3,8 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { BUNDLES, ROOT, buildSkills } from "../scripts/build-skills.mjs";
 import { destinations, install, parseArgs } from "../scripts/install.mjs";
 
@@ -111,4 +113,35 @@ test("a failed replacement restores all previously installed skills and removes 
   }
   assert.deepEqual((await readdir(options.skillsDir)).sort(), ["kaiyuncode-image", "kaiyuncode-video"]);
   await install(options, context);
+});
+
+test("KaiyunTool upgrades legacy receipts and still refuses local edits", async (t) => {
+  const context = await fixture(t);
+  const options = { skillsDir: join(context.home, "skills"), skills: ["kaiyuncode-configure-agents"] };
+  const [item] = await install(options, context);
+  const receiptPath = join(item.target, ".kaiyuncode-install.json");
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  receipt.owner = "damian2848/kaiyuncode-tools";
+  await writeFile(receiptPath, JSON.stringify(receipt));
+  await install(options, context);
+  assert.equal(JSON.parse(await readFile(receiptPath, "utf8")).owner, "damian2848/kaiyuntool");
+  await writeFile(receiptPath, JSON.stringify(receipt));
+  await writeFile(join(item.target, "local.txt"), "keep local edits");
+  await assert.rejects(install(options, context), /Local changes/);
+  assert.equal(await readFile(join(item.target, "local.txt"), "utf8"), "keep local edits");
+});
+
+test("CLI installation introduces only installed capabilities and does not configure a client", async (t) => {
+  const context = await fixture(t);
+  const skillsDir = join(context.home, "skills");
+  const args = [join(ROOT, "scripts/install.mjs"), "--skills-dir", skillsDir, "--skill", "kaiyuncode-configure-agents"];
+  const { stdout } = await promisify(execFile)(process.execPath, args, { env: { ...process.env, HOME: context.home } });
+  assert.match(stdout, /KaiyunTool 安装完成/);
+  assert.match(stdout, /OpenClaw/);
+  assert.match(stdout, /同步全部文本模型和推理强度/);
+  assert.doesNotMatch(stdout, /海报|5 秒/);
+  assert.deepEqual(await readdir(context.home), ["skills"]);
+  assert.deepEqual(await readdir(skillsDir), ["kaiyuncode-configure-agents"]);
+  const preview = await promisify(execFile)(process.execPath, [...args, "--dry-run"]);
+  assert.doesNotMatch(preview.stdout, /安装完成/);
 });

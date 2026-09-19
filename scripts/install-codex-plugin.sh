@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-readonly REPOSITORY_URL="https://github.com/damian2848/kaiyuncode-tools.git"
-readonly PLUGIN_NAME="kaiyuncode-tools"
+readonly REPOSITORY_URL="https://github.com/damian2848/kaiyuntool.git"
+readonly PLUGIN_NAME="kaiyuntool"
 readonly INSTALL_DIR="${HOME}/plugins/${PLUGIN_NAME}"
 readonly MARKETPLACE_PATH="${HOME}/.agents/plugins/marketplace.json"
 
@@ -12,7 +12,7 @@ fail() {
   exit 1
 }
 
-for command_name in git python3 codex; do
+for command_name in git python3 node codex; do
   command -v "${command_name}" >/dev/null 2>&1 || fail "未找到 ${command_name}，请先安装后重试。"
 done
 
@@ -25,8 +25,8 @@ if [[ -e "${INSTALL_DIR}" ]]; then
 
   origin_url="$(git -C "${INSTALL_DIR}" remote get-url origin 2>/dev/null || true)"
   case "${origin_url}" in
-    "${REPOSITORY_URL}"|"https://github.com/damian2848/kaiyuncode-tools"|"git@github.com:damian2848/kaiyuncode-tools.git"|"ssh://git@github.com/damian2848/kaiyuncode-tools.git") ;;
-    *) fail "目标目录不是 KaiyunCode Tools 仓库，未执行覆盖：${INSTALL_DIR}" ;;
+    "${REPOSITORY_URL}"|"https://github.com/damian2848/kaiyuntool"|"git@github.com:damian2848/kaiyuntool.git"|"ssh://git@github.com/damian2848/kaiyuntool.git") ;;
+    *) fail "目标目录不是 KaiyunTool 仓库，未执行覆盖：${INSTALL_DIR}" ;;
   esac
 
   [[ -z "$(git -C "${INSTALL_DIR}" status --porcelain)" ]] || fail "仓库存在本地修改，请先处理后重试：${INSTALL_DIR}"
@@ -55,8 +55,8 @@ import tempfile
 from pathlib import Path
 
 marketplace_path = Path(sys.argv[1])
-plugin_name = "kaiyuncode-tools"
-expected_source = {"source": "local", "path": "./plugins/kaiyuncode-tools"}
+plugin_name = "kaiyuntool"
+expected_source = {"source": "local", "path": "./plugins/kaiyuntool"}
 
 if marketplace_path.exists():
     payload = json.loads(marketplace_path.read_text(encoding="utf-8"))
@@ -137,3 +137,8 @@ PY
 )"
 
 printf '\n安装完成：%s %s\n请新建 Codex 对话后开始使用。\n' "${PLUGIN_NAME}" "${plugin_version}"
+node --input-type=module - "${INSTALL_DIR}" <<'JS'
+import { pathToFileURL } from 'node:url';
+const { installationGuide } = await import(pathToFileURL(`${process.argv[2]}/shared/installation-guide.mjs`));
+console.log(installationGuide());
+JS

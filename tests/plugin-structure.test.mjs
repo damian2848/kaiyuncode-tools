@@ -8,7 +8,7 @@ test("manifest exposes the four KaiyunCode workflow skills", async () => {
   const manifest = JSON.parse(
     await readFile(new URL(".codex-plugin/plugin.json", root), "utf8"),
   );
-  assert.equal(manifest.name, "kaiyuncode-tools");
+  assert.equal(manifest.name, "kaiyuntool");
   const packageJson = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");

@@ -1,5 +1,5 @@
 {
-  "name": "kaiyuncode-tools",
+  "name": "kaiyuntool",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "check:skills": "node scripts/build-skills.mjs --check",
     "install:skills": "node scripts/install.mjs"
   },
-  "version": "0.5.4",
+  "version": "1.0.0",
   "engines": {
     "node": ">=20"
   }

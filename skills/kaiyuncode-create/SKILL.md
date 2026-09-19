@@ -1,9 +1,11 @@
 ---
 name: kaiyuncode-create
-description: "使用 KaiyunCode 从一个想法完成图片或视频创作，或查询可用模型和价格。适合首次使用、尚未选模型或跨图片与视频的需求。"
+description: "使用 KaiyunTool / KaiyunCode 从想法完成图片或视频创作、查询模型和价格，或介绍安装后可用功能。适合首次使用、尚未选模型或跨图片与视频的需求。"
 ---
 
 # KaiyunCode 创作助手
+
+用户刚安装 KaiyunTool 或询问能做什么时，先简述已安装功能：图片创作/编辑、视频生成、实时模型与价格查询、任务恢复下载；安装了 `kaiyuncode-configure-agents` 时还可接入 Codex、Claude Code、OpenClaw 并刷新模型。各给简短示例，让用户选一个开始。已有明确任务时直接执行，不重复欢迎介绍；安装不自动配置客户端或提交付费任务。
 
 用自然语言把需求推进到成品。不要要求用户学习模型 ID、capability 或命令行；不必逐轮报告阶段，只问当前缺少的必要信息。
 
