@@ -45,6 +45,16 @@ model_provider = "kaiyuncode"
 base_url = "https://kaiyuncode.com/v1"
 `;
 
+test("custom provider credentials are discovered by the active KaiyunCode URL", async (t) => {
+  const homes = await createFixture(t, {
+    codexConfig: 'model_provider = "custom"\n[model_providers.custom]\nbase_url = "https://kaiyuncode.com/v1"\n',
+    codexKey: "custom-kaiyun-key",
+  });
+  assert.deepEqual(await resolveCredential({ ...homes, env: {} }), { apiKey: "custom-kaiyun-key", source: "codex" });
+  await writeFile(join(homes.codexHome, "config.toml"), 'model_provider = "custom"\n[model_providers.custom]\nbase_url = "https://other.example/v1"\n');
+  await assert.rejects(resolveCredential({ ...homes, env: {} }), { name: "CredentialNotFoundError" });
+});
+
 test("env wins over file and ignores conflicting client keys", async (t) => {
   const homes = await createFixture(t, {
     codexConfig: kaiyunCodexConfig,

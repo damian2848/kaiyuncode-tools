@@ -1,5 +1,7 @@
+import { TEXT_PROVIDER_ID } from "./text-provider.mjs";
+
 const CODEX_ROOT_FIELDS = [
-  ["model_provider", '"kaiyuncode"'],
+  ["model_provider", JSON.stringify(TEXT_PROVIDER_ID)],
   ["model", null],
   ["model_reasoning_effort", '"xhigh"'],
   ["model_verbosity", '"high"'],
@@ -11,7 +13,7 @@ const CODEX_ROOT_FIELDS = [
 ];
 
 const CODEX_PROVIDER_FIELDS = [
-  ["name", '"kaiyuncode"'],
+  ["name", JSON.stringify(TEXT_PROVIDER_ID)],
   ["base_url", '"https://kaiyuncode.com/v1"'],
   ["wire_api", '"responses"'],
   ["requires_openai_auth", "true"],
@@ -274,7 +276,7 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
       currentTablePath = table.path;
       if (providerHeaderIndex !== null && providerEndIndex === lines.length) providerEndIndex = index;
       if (desktopHeaderIndex !== null && desktopEndIndex === lines.length) desktopEndIndex = index;
-      if (samePath(table.path, ["model_providers", "kaiyuncode"])) {
+      if (samePath(table.path, ["model_providers", TEXT_PROVIDER_ID])) {
         if (table.array) throw new Error("Ambiguous KaiyunCode provider array table");
         if (providerHeaderIndex !== null) throw new Error("Duplicate KaiyunCode provider table");
         providerHeaderIndex = index;
@@ -302,7 +304,7 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
       if (path.length > 1 && rootFields.has(path[0])) {
         throw new Error("Ambiguous dotted key conflicts with a target Codex root field");
       }
-      if (path.length > 1 && samePath(path.slice(0, 2), ["model_providers", "kaiyuncode"])) {
+      if (path.length > 1 && samePath(path.slice(0, 2), ["model_providers", TEXT_PROVIDER_ID])) {
         throw new Error("Ambiguous dotted KaiyunCode provider configuration");
       }
       if (path.length === 1 && path[0] === "model_providers") {
@@ -323,7 +325,7 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
       }
       if (desktopFields.has(path[0])) desktopFields.get(path[0]).push(index);
     } else if (samePath(currentTablePath, ["model_providers"])) {
-      if (path[0] === "kaiyuncode") {
+      if (path[0] === TEXT_PROVIDER_ID) {
         throw new Error("Ambiguous inline or dotted KaiyunCode provider configuration");
       }
     }
@@ -389,7 +391,7 @@ export function mergeCodexConfig(source, { model, catalogPath } = {}) {
     for (const [key, value] of fields) replaced.push(`${key} = ${value}${eol}`);
   };
   if (desktopHeaderIndex === null) appendTable("[desktop]", CODEX_DESKTOP_FIELDS);
-  if (providerHeaderIndex === null) appendTable("[model_providers.kaiyuncode]", CODEX_PROVIDER_FIELDS);
+  if (providerHeaderIndex === null) appendTable(`[model_providers.${TEXT_PROVIDER_ID}]`, CODEX_PROVIDER_FIELDS);
   return replaced.join("");
 }
 

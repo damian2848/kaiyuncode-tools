@@ -9,6 +9,8 @@ description: "仅在用户要求把 Codex、Claude Code 或 OpenClaw 接入 Kaiy
 
 需要 Node.js 20+、目标客户端 CLI、文件读写和联网命令执行能力。`<skill-dir>` 是本 SKILL.md 的绝对目录，正确引用含空格路径；容器或远程环境也需具备这些条件。
 
+Codex、OpenClaw 的客户端 provider ID 均使用 `custom`，与 CC Switch 保持一致，减少供应商切换时的会话归属冲突。服务地址仍为 KaiyunCode。脚本迁移旧 OpenClaw 模型引用及缓存，保留 Codex 旧 provider 表；不改写历史会话记录或固定值。
+
 ## OpenClaw 配置或刷新
 
 使用已有 KaiyunCode 密钥，通过 `KAIYUN_API_KEY` 或 stdin 传入。仅配置 OpenClaw：

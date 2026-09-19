@@ -1,4 +1,5 @@
 import { modelIsExplicitlyNonText } from "./codex-model-catalog.mjs";
+import { TEXT_PROVIDER_ID } from "./text-provider.mjs";
 
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function field(sources, keys) {
@@ -96,32 +97,58 @@ export function buildOpenClawModels(availableModels) {
   return { models, warnings };
 }
 
+function isLegacyKaiyunProvider(provider) {
+  if (!provider) return true; // Older configurations kept the provider in models.json only.
+  return ["https://kaiyuncode.com/v1", "https://kaiyuncode.com/v1/"].includes(provider.baseUrl);
+}
+
+export function mergeOpenClawProviders(providers = {}, provider, replaceProviders = false) {
+  const next = replaceProviders ? {} : { ...providers };
+  if (isLegacyKaiyunProvider(next.kaiyuncode)) delete next.kaiyuncode;
+  next[TEXT_PROVIDER_ID] = provider;
+  return next;
+}
+
 export function mergeOpenClawConfig(config, { models, apiKey, model, replaceProviders = false }) {
   if (!object(config)) throw new Error("OpenClaw config must be a JSON object");
   const next = structuredClone(config);
-  const refs = models.map(({ id }) => `kaiyuncode/${id}`);
+  const migrateLegacy = isLegacyKaiyunProvider(next.models?.providers?.kaiyuncode);
+  const migrateRef = (ref) => typeof ref === "string" && migrateLegacy && ref.startsWith("kaiyuncode/") ? `${TEXT_PROVIDER_ID}/${ref.slice("kaiyuncode/".length)}` : ref;
+  const managedRef = (ref) => typeof ref === "string" && migrateRef(ref).startsWith(`${TEXT_PROVIDER_ID}/`);
+  const refs = models.map(({ id }) => `${TEXT_PROVIDER_ID}/${id}`);
   const allowed = new Set(refs);
   next.agents ??= {};
   next.agents.defaults ??= {};
   const defaults = next.agents.defaults;
   const previous = typeof defaults.model === "string" ? defaults.model : defaults.model?.primary;
   const previousId = previous?.slice(previous.indexOf("/") + 1);
-  const selected = model?.replace(/^kaiyuncode\//u, "")
+  const selected = model?.replace(/^(?:custom|kaiyuncode)\//u, "")
     ?? (models.some(({ id }) => id === previousId) ? previousId : models.find(({ id }) => id === "gpt-5.6-sol")?.id ?? models[0].id);
-  const primary = `kaiyuncode/${selected}`;
+  const primary = `${TEXT_PROVIDER_ID}/${selected}`;
   if (!allowed.has(primary)) throw new Error(`OpenClaw model ${selected} is unavailable as a supported KaiyunCode text model`);
   const provider = { baseUrl: "https://kaiyuncode.com/v1", apiKey, models };
-  next.models = { ...next.models, mode: replaceProviders ? "replace" : next.models?.mode ?? "merge", providers: {
-    ...(replaceProviders ? {} : next.models?.providers), kaiyuncode: provider,
-  } };
+  next.models = { ...next.models, mode: replaceProviders ? "replace" : next.models?.mode ?? "merge",
+    providers: mergeOpenClawProviders(next.models?.providers, provider, replaceProviders),
+  };
+  const keepRef = (ref) => !replaceProviders && !managedRef(ref) || allowed.has(migrateRef(ref));
+  const migrateSelection = (value) => {
+    if (value === "") return value; // Explicitly disables utility routing.
+    if (typeof value === "string") return keepRef(value) ? migrateRef(value) : undefined;
+    if (!object(value)) return value;
+    if (value.primary && !keepRef(value.primary)) return undefined;
+    return { ...value,
+      ...(value.primary ? { primary: migrateRef(value.primary) } : {}),
+      ...(value.fallbacks ? { fallbacks: value.fallbacks.filter(keepRef).map(migrateRef) } : {}),
+    };
+  };
   const updateScope = (scope, isDefault = false) => {
     if (!object(scope)) throw new Error("Invalid OpenClaw agent configuration");
     const previousModels = scope.models ?? {};
     scope.models = Object.fromEntries([
-      ...Object.entries(previousModels).filter(([ref]) => !replaceProviders && !ref.startsWith("kaiyuncode/")),
+      ...Object.entries(previousModels).filter(([ref]) => !replaceProviders && !managedRef(ref)),
       ...models.map((row) => {
-        const ref = `kaiyuncode/${row.id}`;
-        const prior = previousModels[ref] ?? {};
+        const ref = `${TEXT_PROVIDER_ID}/${row.id}`;
+        const prior = previousModels[ref] ?? (migrateLegacy ? previousModels[`kaiyuncode/${row.id}`] : undefined) ?? {};
         const params = { ...prior.params };
         // Replace stale per-model effort defaults; an absent public default
         // remains absent. Unrelated settings such as temperature survive.
@@ -134,22 +161,22 @@ export function mergeOpenClawConfig(config, { models, apiKey, model, replaceProv
     ]);
     const policy = scope.modelPolicy;
     if (replaceProviders || policy?.allow?.length) {
-      scope.modelPolicy = { ...policy, allow: replaceProviders ? refs : [...new Set([...policy.allow.filter((ref) => !ref.startsWith("kaiyuncode/")), ...refs])] };
+      scope.modelPolicy = { ...policy, allow: replaceProviders ? refs : [...new Set([...policy.allow.filter((ref) => !managedRef(ref)), ...refs])] };
     }
     if (isDefault || replaceProviders && scope.model !== undefined) {
       scope.model = { ...(object(scope.model) ? scope.model : {}), primary };
-      if (replaceProviders && scope.model.fallbacks) scope.model.fallbacks = scope.model.fallbacks.filter((ref) => allowed.has(ref));
+      if (scope.model.fallbacks) scope.model.fallbacks = scope.model.fallbacks.filter(keepRef).map(migrateRef);
+    } else if (scope.model !== undefined) {
+      scope.model = migrateSelection(scope.model) ?? { primary };
+    }
+    for (const key of ["utilityModel", "imageModel", "pdfModel"]) {
+      if (scope[key] === undefined) continue;
+      const migrated = migrateSelection(scope[key]);
+      if (migrated === undefined) delete scope[key];
+      else scope[key] = migrated;
     }
     if (replaceProviders) {
       delete scope.thinkingDefault;
-      for (const key of ["utilityModel", "imageModel", "pdfModel"]) {
-        const value = scope[key];
-        if (typeof value === "string" && value && !allowed.has(value)) delete scope[key];
-        else if (object(value)) {
-          if (value.primary && !allowed.has(value.primary)) delete scope[key];
-          else if (value.fallbacks) value.fallbacks = value.fallbacks.filter((ref) => allowed.has(ref));
-        }
-      }
     }
   };
   updateScope(defaults, true);

@@ -1,5 +1,7 @@
 # Codex 模型目录
 
+配置统一使用 `model_provider = "custom"` 和 `[model_providers.custom]`，与 CC Switch 保持稳定的客户端供应商标识；服务地址仍为 KaiyunCode。已有 custom 表原位更新，旧 KaiyunCode 表保留供历史引用；不会改写历史会话归属。凭据发现根据当前 provider 的服务地址判断，不依赖 provider 名称。
+
 配置脚本校验 `GET /v1/models` 后，为该 API Key 可用且兼容 Responses 的文本模型生成 `$CODEX_HOME/kaiyuncode-model-catalog.json`，并将绝对路径写入 `config.toml` 的 `model_catalog_json`。默认 `CODEX_HOME` 为 `~/.codex`。图片、视频、音频、embedding 和 rerank 模型不进入目录；支持图片输入的文本模型可以进入。
 
 模型根字段或 `metadata` 中的 `supportedWireApis` / `supported_wire_apis` 声明开放协议，根字段优先。非空列表必须包含 `responses` 才进入 Codex 目录；仅支持 `chat_completions` 或 `anthropic_messages` 的文本模型会被跳过，并在 `warnings` 中解释原因。若通过 `--codex-model` 选中此类模型，脚本在备份、写入和登录前报错。Claude Code 的模型选择不受这项 Codex 协议筛选影响。旧接口缺失、`null` 或空数组表示未声明协议，沿用兼容行为。

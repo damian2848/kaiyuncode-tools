@@ -50,6 +50,8 @@ node scripts/configure-agents.mjs --openclaw-only --replace-providers --dry-run
 
 ## 配置、备份与验证
 
+客户端 provider ID 固定为 `custom`，模型引用为 `custom/<模型 ID>`，上游 URL 仍为 KaiyunCode。这样与 CC Switch 使用同一标识，减少切换供应商时的会话归属冲突。刷新会迁移旧 KaiyunCode provider、代理缓存及默认/备用/辅助模型引用，保留模型别名；普通模式保留指向其他服务的同名 `kaiyuncode` provider。
+
 普通接入保留其他 provider；`--replace-providers` 将 `models.mode` 设为 `replace`，并同步主配置、各代理模型列表、白名单和已有 `models.json`。现有会话固定值、计划任务的模型覆盖不会被批量改写。
 
 支持 `OPENCLAW_STATE_DIR` 和 `OPENCLAW_CONFIG_PATH`。配置及模型缓存必须在状态目录内，路径不可经过符号链接；当前脚本读取标准 JSON，含注释的 JSON5 或 `$include` 配置需先转换或按源文件处理。

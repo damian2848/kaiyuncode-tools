@@ -10,13 +10,13 @@ KaiyunTool（原 KaiyunCode Tools）是一套可独立安装的 Agent Skills。�
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent openclaw
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.1/scripts/install.sh | bash -s -- --agent openclaw
 
 # Codex
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent codex
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.1/scripts/install.sh | bash -s -- --agent codex
 
 # Claude Code
-curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/scripts/install.sh | bash -s -- --agent claude
+curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.1/scripts/install.sh | bash -s -- --agent claude
 ```
 
 其他宿主将 `--agent` 改为 `grok` 或 `hermes`。支持 macOS、Linux、Windows WSL，也可指定自定义技能目录。
@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/damian2848/kaiyuntool/v1.0.0/script
 
 图片和视频会先展示方案及预算，**经你确认后才生成**。参考素材可直接使用本机文件；客户端接入和模型刷新按你的请求直接执行，并备份原配置。
 
+**Codex、OpenClaw 的 provider ID 统一使用 `custom`**，与 CC Switch 切换供应商时的标识保持一致，减少会话归属冲突；上游服务仍是 KaiyunCode。OpenClaw 模型引用为 `custom/<模型 ID>`，界面可能显示 Custom 分组。已有配置在下次接入或刷新时迁移，历史会话记录不会改写。
+
 ## OpenClaw：一个 KaiyunCode 分组，切换全部文本模型
 
 配置时实时读取账户的 `GET /v1/models`，过滤图片/视频生成、向量和重排模型。模型数量和能力随账户及平台变化，不使用固定模型清单。
@@ -59,7 +61,7 @@ OpenClaw 自身的 Ultra 多代理工作流与上游推理档位不同；原生�
 
 ## 更新与旧版迁移
 
-升级到 1.0.0，重跑上面的安装命令即可。获取后续最新版本时，把 URL 中的 `v1.0.0` 改成 `main`。
+升级到 1.0.1，重跑上面的安装命令即可。获取后续最新版本时，把 URL 中的 `v1.0.1` 改成 `main`。
 
 原 `kaiyuncode-tools` 安装记录仍可识别。技能目录名称 `kaiyuncode-*`、`KAIYUN_API_KEY` 和凭据路径保留兼容；无本地修改的旧技能可直接升级。遇到本地改动，安装器会停止并提示，不覆盖你的修改。通过旧 Codex 插件安装的用户需禁用旧插件，避免技能重复。
 

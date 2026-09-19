@@ -416,7 +416,7 @@ test("dry-run performs no filesystem mutation and no process calls", async (t) =
 
   assert.equal(processCalls, 0);
   assert.deepEqual(result.backups, []);
-  assert.equal(result.preview.codex.provider, "kaiyuncode");
+  assert.equal(result.preview.codex.provider, "custom");
   assert.equal(result.preview.codex.modelCount, 5);
   assert.equal(result.preview.codex.catalog.models[0].slug, "gpt-5.6-sol");
   assert.equal(result.preview.claude.baseUrl, "https://kaiyuncode.com");

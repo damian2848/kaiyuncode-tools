@@ -39,9 +39,9 @@ test("real Codex loads modalities and sends image input and default effort to Re
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   await writeFile(join(directory, "config.toml"), [
-    'model_provider = "kaiyuncode"', 'model = "catalog-reasoner"',
+    'model_provider = "custom"', 'model = "catalog-reasoner"',
     `model_catalog_json = ${JSON.stringify(catalogPath)}`, 'web_search = "disabled"',
-    '[model_providers.kaiyuncode]', 'name = "kaiyuncode"', 'wire_api = "responses"',
+    '[model_providers.custom]', 'name = "custom"', 'wire_api = "responses"',
     `base_url = "http://127.0.0.1:${server.address().port}/v1"`,
     'request_max_retries = 0', 'stream_max_retries = 0',
   ].join("\n"));

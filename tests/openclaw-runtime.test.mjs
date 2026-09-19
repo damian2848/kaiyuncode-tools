@@ -32,7 +32,7 @@ test("real OpenClaw adapters send the declared endpoint and selected public effo
   for (const [wire, effort] of [["responses", "low"], ["responses", "xhigh"], ["responses", "max"], ["chat_completions", "high"], ["chat_completions", "max"], ["responses", null]]) {
     const source = { id: "public-model", type: "text", supportedWireApis: [wire], supported_reasoning_levels: effort ? [effort] : [], default_reasoning_level: effort };
     const { models: [row] } = buildOpenClawModels(new Map([[source.id, source]]));
-    const model = { ...row, provider: "kaiyuncode", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, contextWindow: 32000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    const model = { ...row, provider: "custom", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, contextWindow: 32000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
     const result = await runtime.completeSimple(model, { messages: [{ role: "user", content: "local test", timestamp: Date.now() }] }, { apiKey: "fake-local-only-key", reasoning: row.params?.thinking, maxTokens: 32, transport: "sse" });
     assert.notEqual(result.stopReason, "error", result.errorMessage);
     const request = requests.at(-1);

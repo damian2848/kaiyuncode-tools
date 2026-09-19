@@ -11,7 +11,7 @@ Client configuration requests authorize the required writes. Execute directly; d
 The script merges these root fields into `~/.codex/config.toml`:
 
 ```toml
-model_provider = "kaiyuncode"
+model_provider = "custom"
 model = "gpt-5.6-sol"
 model_catalog_json = "/absolute/path/to/.codex/kaiyuncode-model-catalog.json"
 web_search = "live"
@@ -30,8 +30,8 @@ Root overrides for `model_reasoning_effort`, `model_context_window`, `model_auto
 It also merges one provider table:
 
 ```toml
-[model_providers.kaiyuncode]
-name = "kaiyuncode"
+[model_providers.custom]
+name = "custom"
 base_url = "https://kaiyuncode.com/v1"
 wire_api = "responses"
 requires_openai_auth = true
@@ -69,6 +69,8 @@ Public `supported_reasoning_levels` and `default_reasoning_level` populate `comp
 
 State/config paths honor `OPENCLAW_STATE_DIR` and `OPENCLAW_CONFIG_PATH`. The config path and existing agent model caches must be within the state directory and must not traverse symlinks. Plain JSON is supported; JSON5 comments and `$include` require conversion or editing the source-owned configuration first.
 
-Without `--replace-providers`, existing providers and unrelated model settings remain. With it, `models.mode` becomes `replace`, `models.providers` and existing `agents/*/agent/models.json` caches contain only `kaiyuncode`, and default/per-agent model maps and policy allowlists contain the synchronized models. Old primary overrides are moved to the selected KaiyunCode model, unavailable fallback/utility/image/PDF selections are removed, and agent/global thinking defaults are cleared so public per-model defaults apply. Refresh replaces stale per-model effort defaults. Workspace, tools, channels and gateway settings remain intact. Existing session pins and scheduled-job overrides are not rewritten.
+Without `--replace-providers`, existing providers and unrelated model settings remain. With it, `models.mode` becomes `replace`, `models.providers` and existing `agents/*/agent/models.json` caches contain only `custom`, and default/per-agent model maps and policy allowlists contain the synchronized models. Old primary overrides are moved to the selected KaiyunCode model, unavailable fallback/utility/image/PDF selections are removed, and agent/global thinking defaults are cleared so public per-model defaults apply. Refresh replaces stale per-model effort defaults. Workspace, tools, channels and gateway settings remain intact. Existing session pins and scheduled-job overrides are not rewritten.
 
 The default keeps the existing primary's model ID when available from KaiyunCode, otherwise prefers `gpt-5.6-sol`, then the first available text model. Explicit unavailable selections fail before writes. Every existing target gets a private timestamped backup. A temporary config is checked with `openclaw config validate --json` before live replacement; failed writes restore snapshots and original modes. Config and cache files use mode `0600`. Gateway reload/restart and verification are performed by the calling agent, not by the script; it never makes paid inference calls.
+
+Codex and OpenClaw use the stable client provider ID `custom` for CC Switch compatibility; the upstream service and credential paths remain KaiyunCode. Codex updates the custom table in place and preserves old provider tables. OpenClaw migrates recognized KaiyunCode provider entries, model references, aliases and agent caches to `custom/<id>`. A legacy-named provider pointing to another service remains in ordinary mode. Historical session attribution and session pins are not rewritten.

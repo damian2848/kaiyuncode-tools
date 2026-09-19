@@ -7,6 +7,18 @@ import {
   mergeCodexConfig,
 } from "../shared/toml-edit.mjs";
 
+test("Codex uses the stable custom identity and preserves old provider tables", () => {
+  const legacy = '[model_providers.kaiyuncode]\nname = "KaiyunCode"\nbase_url = "https://kaiyuncode.com/v1"\n';
+  const source = 'model_provider = "kaiyuncode"\n' + legacy
+    + '[model_providers.custom]\nname = "CC Switch"\nbase_url = "https://old.example/v1"\nwire_api = "responses"\n';
+  const result = mergeCodexConfig(source, { model: "gpt-5.6-terra" });
+  assert.match(result, /^model_provider = "custom"$/m);
+  assert.ok(result.includes(legacy));
+  assert.equal((result.match(/\[model_providers\.custom\]/g) ?? []).length, 1);
+  assert.match(result, /\[model_providers\.custom\]\nname = "custom"\nbase_url = "https:\/\/kaiyuncode.com\/v1"/);
+  assert.equal(mergeCodexConfig(result, { model: "gpt-5.6-terra" }), result);
+});
+
 test("Codex merge changes only documented root keys and one provider", () => {
   const input = [
     "# keep this comment",
@@ -16,7 +28,7 @@ test("Codex merge changes only documented root keys and one provider", () => {
     'network_access = true',
     'approval_policy = "on-request"',
     "",
-    "[model_providers.kaiyuncode]",
+    "[model_providers.custom]",
     '# provider comment stays',
     'base_url = "https://old.example/v1"',
     'custom_header = "keep"',
@@ -31,7 +43,7 @@ test("Codex merge changes only documented root keys and one provider", () => {
 
   const output = mergeCodexConfig(input, { model: "gpt-5.6-sol" });
 
-  assert.match(output, /^model_provider = "kaiyuncode"$/m);
+  assert.match(output, /^model_provider = "custom"$/m);
   assert.match(output, /^model = "gpt-5\.6-sol" # replaced target$/m);
   assert.match(output, /^model_reasoning_effort = "xhigh"$/m);
   assert.match(output, /^model_verbosity = "high"$/m);
@@ -39,12 +51,12 @@ test("Codex merge changes only documented root keys and one provider", () => {
   assert.doesNotMatch(output, /^(disable_response_storage|network_access)\s*=/m);
   assert.match(output, /# legacy field/);
   assert.match(output, /\[desktop\][\s\S]*show-ultra-in-model-picker-slider = true/);
-  assert.match(output, /\[model_providers\.kaiyuncode\][\s\S]*base_url = "https:\/\/kaiyuncode\.com\/v1"/);
+  assert.match(output, /\[model_providers\.custom\][\s\S]*base_url = "https:\/\/kaiyuncode\.com\/v1"/);
   assert.match(output, /# provider comment stays/);
   assert.match(output, /custom_header = "keep"/);
   assert.match(output, /\[mcp_servers\.docs\]\nurl = "https:\/\/example\.test"/);
   assert.match(output, /\[plugins\.sample\]\nenabled = true/);
-  assert.equal((output.match(/\[model_providers\.kaiyuncode\]/g) ?? []).length, 1);
+  assert.equal((output.match(/\[model_providers\.custom\]/g) ?? []).length, 1);
   assert.doesNotMatch(output, /old\.example/);
 });
 
@@ -86,14 +98,14 @@ test("catalog settings remove global overrides, preserve comments and remain ide
 
 test("Codex merge fails closed on duplicate or semantically ambiguous targets", () => {
   const rejected = [
-    '[model_providers.kaiyuncode]\nname = "one"\n["model_providers"."kaiyuncode"]\nname = "two"\n',
+    '[model_providers.custom]\nname = "one"\n["model_providers"."custom"]\nname = "two"\n',
     'model = "one"\nmodel = "two"\n',
-    'model_providers.kaiyuncode.base_url = "https://example.test"\n',
-    'model_providers = { kaiyuncode = { base_url = "https://example.test" } }\n',
-    '[model_providers]\nkaiyuncode = { base_url = "https://example.test" }\n',
-    '[model_providers]\nkaiyuncode.base_url = "https://example.test"\n',
-    'model = "old"\n[model_providers.kaiyuncode]\nname = "one"\nname = "two"\n',
-    '[[model_providers.kaiyuncode]]\nname = "one"\n',
+    'model_providers.custom.base_url = "https://example.test"\n',
+    'model_providers = { custom = { base_url = "https://example.test" } }\n',
+    '[model_providers]\ncustom = { base_url = "https://example.test" }\n',
+    '[model_providers]\ncustom.base_url = "https://example.test"\n',
+    'model = "old"\n[model_providers.custom]\nname = "one"\nname = "two"\n',
+    '[[model_providers.custom]]\nname = "one"\n',
     'model.variant = "conflicts with scalar target"\n',
     '["model"]\nvariant = "conflicts with scalar target"\n',
     '[desktop]\nshow-ultra-in-model-picker-slider = false\n[desktop]\nshow-ultra-in-model-picker-slider = true\n',
@@ -118,10 +130,10 @@ test("Codex merge preserves unrelated dotted providers and is idempotent", () =>
 });
 
 test("Codex merge preserves multiline TOML and ignores target-like content inside it", () => {
-  const source = 'instructions = """\nmodel = not-a-key\n[model_providers.kaiyuncode]\n"""\n';
+  const source = 'instructions = """\nmodel = not-a-key\n[model_providers.custom]\n"""\n';
   const output = mergeCodexConfig(source, { model: "gpt-5.6-sol" });
   assert.ok(output.includes(source));
-  assert.equal((output.match(/\[model_providers\.kaiyuncode\]/gu) ?? []).length, 2);
+  assert.equal((output.match(/\[model_providers\.custom\]/gu) ?? []).length, 2);
 });
 
 test("Codex merge preserves escaped triple quotes and target-like multiline string content", () => {

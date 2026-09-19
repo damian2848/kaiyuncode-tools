@@ -14,7 +14,8 @@ import {
 import { buildCodexModelCatalog, modelIsExplicitlyNonText, modelSupportsResponses } from "../shared/codex-model-catalog.mjs";
 import { redactSensitive } from "../shared/redaction.mjs";
 import { mergeClaudeSettings, mergeCodexConfig } from "../shared/toml-edit.mjs";
-import { buildOpenClawModels, mergeOpenClawConfig } from "../shared/openclaw-config.mjs";
+import { buildOpenClawModels, mergeOpenClawConfig, mergeOpenClawProviders } from "../shared/openclaw-config.mjs";
+import { TEXT_PROVIDER_ID } from "../shared/text-provider.mjs";
 
 const MODE_PRIVATE = 0o600;
 const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
@@ -348,7 +349,7 @@ export async function configureAgents(options = {}) {
       path: mediaCredentialPath,
       note: "Canonical image/video key file (same API Key)",
     },
-    codex: { provider: "kaiyuncode", model: codexModel, baseUrl: "https://kaiyuncode.com/v1", catalogPath: codexCatalog, modelCount: catalog.models.length, catalog, warnings },
+    codex: { provider: TEXT_PROVIDER_ID, model: codexModel, baseUrl: "https://kaiyuncode.com/v1", catalogPath: codexCatalog, modelCount: catalog.models.length, catalog, warnings },
     claude: codexOnly ? null : {
       model: claudeModel,
       opusModel: claudeOpusModel,
@@ -439,9 +440,9 @@ async function configureOpenClaw(options) {
     const cache = JSON.parse(snapshot.content.toString("utf8"));
     if (!cache || typeof cache !== "object" || Array.isArray(cache)) throw new Error(`Invalid OpenClaw model cache: ${path}`);
     snapshots.push(snapshot);
-    writes.push({ path, value: { ...cache, providers: { ...(options.replaceProviders ? {} : cache.providers), kaiyuncode: provider } } });
+    writes.push({ path, value: { ...cache, providers: mergeOpenClawProviders(cache.providers, provider, options.replaceProviders) } });
   }
-  const preview = { openclaw: { configPath, provider: "kaiyuncode", model: primary, modelCount: models.length, models, replaceProviders: Boolean(options.replaceProviders), cachePaths: writes.slice(1).map(({ path }) => path), warnings } };
+  const preview = { openclaw: { configPath, provider: TEXT_PROVIDER_ID, model: primary, modelCount: models.length, models, replaceProviders: Boolean(options.replaceProviders), cachePaths: writes.slice(1).map(({ path }) => path), warnings } };
   if (dryRun) return { backups: [], openclawModel: primary, preview };
   let backups = [];
   try {

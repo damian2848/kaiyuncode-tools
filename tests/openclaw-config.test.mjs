@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { configureAgents, parseCliArgs } from "../skills/kaiyuncode-configure-agents/scripts/configure-agents.mjs";
-import { buildOpenClawModels, mergeOpenClawConfig } from "../shared/openclaw-config.mjs";
+import { buildOpenClawModels, mergeOpenClawConfig, mergeOpenClawProviders } from "../shared/openclaw-config.mjs";
 
 const apiKey = "test-openclaw-private-key";
 const data = [
@@ -25,6 +25,46 @@ const current = {
 };
 const fetchImpl = async () => new Response(JSON.stringify({ data }), { status: 200 });
 
+test("legacy KaiyunCode references migrate to custom across agent settings and cache providers", () => {
+  const { models } = buildOpenClawModels(new Map(data.map((row) => [row.id, row])));
+  const source = structuredClone(current);
+  source.models.providers.kaiyuncode = { baseUrl: "https://kaiyuncode.com/v1", apiKey: "old-key", models: [] };
+  source.agents.defaults.model = { primary: "kaiyuncode/gpt-5.6-terra", fallbacks: ["kaiyuncode/gemini-chat", "old/fallback", "kaiyuncode/retired"] };
+  source.agents.defaults.models["kaiyuncode/gemini-chat"] = { alias: "My Gemini" };
+  source.agents.defaults.modelPolicy.allow = ["kaiyuncode/*", "old/*"];
+  source.agents.entries.main.model = "kaiyuncode/gemini-chat";
+  source.agents.entries.main.utilityModel = "kaiyuncode/gpt-5.6-terra";
+  source.agents.entries.main.imageModel = { primary: "kaiyuncode/gemini-chat", fallbacks: ["kaiyuncode/gpt-5.6-terra"] };
+  const { config, provider } = mergeOpenClawConfig(source, { models, apiKey });
+  assert.equal(config.models.providers.kaiyuncode, undefined);
+  assert.equal(config.models.providers.custom.apiKey, apiKey);
+  assert.deepEqual(config.models.providers.old, source.models.providers.old);
+  assert.deepEqual(config.agents.defaults.model, { primary: "custom/gpt-5.6-terra", fallbacks: ["custom/gemini-chat", "old/fallback"] });
+  assert.equal(config.agents.defaults.models["custom/gemini-chat"].alias, "My Gemini");
+  assert.equal(config.agents.defaults.models["kaiyuncode/gemini-chat"], undefined);
+  assert.ok(!config.agents.defaults.modelPolicy.allow.includes("kaiyuncode/*"));
+  assert.ok(config.agents.defaults.modelPolicy.allow.includes("old/*"));
+  assert.equal(config.agents.entries.main.model, "custom/gemini-chat");
+  assert.equal(config.agents.entries.main.utilityModel, "custom/gpt-5.6-terra");
+  assert.deepEqual(config.agents.entries.main.imageModel, { primary: "custom/gemini-chat", fallbacks: ["custom/gpt-5.6-terra"] });
+  const cache = mergeOpenClawProviders(source.models.providers, provider);
+  assert.deepEqual(Object.keys(cache).sort(), ["custom", "old"]);
+  assert.equal(mergeOpenClawConfig(source, { models, apiKey, model: "custom/gemini-chat" }).primary, "custom/gemini-chat");
+  assert.equal(mergeOpenClawConfig(source, { models, apiKey, model: "kaiyuncode/gemini-chat" }).primary, "custom/gemini-chat");
+  assert.deepEqual(mergeOpenClawConfig(config, { models, apiKey }).config, config);
+});
+
+test("ordinary setup preserves a legacy-named provider pointing elsewhere", () => {
+  const { models } = buildOpenClawModels(new Map(data.map((row) => [row.id, row])));
+  const source = structuredClone(current);
+  source.models.providers.kaiyuncode = { baseUrl: "https://other.example/v1", models: [] };
+  source.agents.entries.main.model = "kaiyuncode/other";
+  const { config, provider } = mergeOpenClawConfig(source, { models, apiKey });
+  assert.deepEqual(config.models.providers.kaiyuncode, source.models.providers.kaiyuncode);
+  assert.equal(config.agents.entries.main.model, "kaiyuncode/other");
+  assert.ok(mergeOpenClawProviders(source.models.providers, provider).kaiyuncode);
+});
+
 test("OpenClaw includes both Responses and Chat models, excluding media and embeddings", () => {
   const { models } = buildOpenClawModels(new Map(data.map((row) => [row.id, row])));
   assert.equal(models.length, 3);
@@ -39,13 +79,13 @@ test("OpenClaw includes both Responses and Chat models, excluding media and embe
 test("exclusive mode removes old providers and per-agent overrides without losing tools or channels", () => {
   const { models } = buildOpenClawModels(new Map(data.map((row) => [row.id, row])));
   const { config, primary } = mergeOpenClawConfig(current, { models, apiKey, replaceProviders: true });
-  assert.equal(primary, "kaiyuncode/gpt-5.6-terra");
-  assert.deepEqual(Object.keys(config.models.providers), ["kaiyuncode"]);
+  assert.equal(primary, "custom/gpt-5.6-terra");
+  assert.deepEqual(Object.keys(config.models.providers), ["custom"]);
   assert.equal(config.models.mode, "replace");
   for (const scope of [config.agents.defaults, config.agents.entries.main]) {
     assert.equal(scope.model.primary, primary);
     assert.equal(Object.keys(scope.models).length, 3);
-    assert.ok(Object.keys(scope.models).every((ref) => ref.startsWith("kaiyuncode/")));
+    assert.ok(Object.keys(scope.models).every((ref) => ref.startsWith("custom/")));
     assert.equal(scope.modelPolicy.allow.length, 3);
   }
   assert.deepEqual(config.agents.defaults.model.fallbacks, []);
@@ -58,13 +98,13 @@ test("exclusive mode removes old providers and per-agent overrides without losin
 test("ordinary setup retains other providers, while refreshing KaiyunCode membership", () => {
   const { models } = buildOpenClawModels(new Map(data.map((row) => [row.id, row])));
   const source = structuredClone(current);
-  source.agents.defaults.models["kaiyuncode/retired"] = {};
-  source.agents.defaults.models["kaiyuncode/gemini-chat"] = { alias: "Gemini" };
+  source.agents.defaults.models["custom/retired"] = {};
+  source.agents.defaults.models["custom/gemini-chat"] = { alias: "Gemini" };
   const { config } = mergeOpenClawConfig(source, { models, apiKey });
   assert.ok(config.models.providers.old);
   assert.ok(config.agents.defaults.models["old/other"]);
-  assert.equal(config.agents.defaults.models["kaiyuncode/retired"], undefined);
-  assert.equal(config.agents.defaults.models["kaiyuncode/gemini-chat"].alias, "Gemini");
+  assert.equal(config.agents.defaults.models["custom/retired"], undefined);
+  assert.equal(config.agents.defaults.models["custom/gemini-chat"].alias, "Gemini");
   assert.ok(config.agents.defaults.modelPolicy.allow.includes("old/*"));
   assert.equal(config.agents.entries.main.model, "old/gpt-5.6-terra");
 });
@@ -116,13 +156,13 @@ test("refresh replaces stale defaults and exclusive mode clears agent thinking o
   const source = structuredClone(current);
   source.agents.defaults.thinkingDefault = "max";
   source.agents.entries.main.thinkingDefault = "low";
-  source.agents.defaults.models["kaiyuncode/gpt-5.6-terra"] = { alias: "Terra", params: { thinking: "max", temperature: 0.5 } };
-  source.agents.defaults.models["kaiyuncode/gemini-chat"] = { params: { thinking: "high" } };
+  source.agents.defaults.models["custom/gpt-5.6-terra"] = { alias: "Terra", params: { thinking: "max", temperature: 0.5 } };
+  source.agents.defaults.models["custom/gemini-chat"] = { params: { thinking: "high" } };
   const { config } = mergeOpenClawConfig(source, { models, apiKey, replaceProviders: true });
   assert.equal(config.agents.defaults.thinkingDefault, undefined);
   assert.equal(config.agents.entries.main.thinkingDefault, undefined);
-  assert.deepEqual(config.agents.defaults.models["kaiyuncode/gpt-5.6-terra"], { alias: "Terra", params: { thinking: "high", temperature: 0.5 } });
-  assert.equal(config.agents.defaults.models["kaiyuncode/gemini-chat"].params.thinking, undefined);
+  assert.deepEqual(config.agents.defaults.models["custom/gpt-5.6-terra"], { alias: "Terra", params: { thinking: "high", temperature: 0.5 } });
+  assert.equal(config.agents.defaults.models["custom/gemini-chat"].params.thinking, undefined);
 });
 
 test("Chat-only Gemini preserves its public default without exposing an incompatible effort control", () => {
@@ -174,13 +214,30 @@ test("configuration backs up and updates both files, is repeatable, and does not
   assert.equal(result.preview.openclaw.modelCount, 3);
   assert.ok(!JSON.stringify(result).includes(apiKey));
   const saved = await fs.readFile(f.configPath, "utf8");
-  assert.equal(JSON.parse(saved).models.providers.kaiyuncode.apiKey, apiKey);
-  assert.deepEqual(Object.keys(JSON.parse(await fs.readFile(f.cachePath, "utf8")).providers), ["kaiyuncode"]);
+  assert.equal(JSON.parse(saved).models.providers.custom.apiKey, apiKey);
+  assert.deepEqual(Object.keys(JSON.parse(await fs.readFile(f.cachePath, "utf8")).providers), ["custom"]);
   assert.equal((await fs.stat(f.configPath)).mode & 0o777, 0o600);
   for (const path of [".codex", ".claude", ".config"]) await assert.rejects(fs.stat(join(f.root, path)), { code: "ENOENT" });
   assert.deepEqual(JSON.parse(await fs.readFile(result.backups[0].backupPath, "utf8")), current);
   await configureAgents({ ...f, spawnImpl: async () => ({ status: 0 }) });
   assert.equal(await fs.readFile(f.configPath, "utf8"), saved);
+});
+
+test("ordinary configuration migrates the legacy provider in both config and agent cache", async (t) => {
+  const f = await fixture(t);
+  const legacy = { baseUrl: "https://kaiyuncode.com/v1", apiKey: "old-key", models: [] };
+  const source = structuredClone(current);
+  source.models.providers.kaiyuncode = legacy;
+  source.agents.defaults.model = "kaiyuncode/gemini-chat";
+  await fs.writeFile(f.configPath, JSON.stringify(source));
+  await fs.writeFile(f.cachePath, JSON.stringify({ providers: { old: current.models.providers.old, kaiyuncode: legacy } }));
+  const result = await configureAgents({ ...f, replaceProviders: false, spawnImpl: async () => ({ status: 0 }) });
+  assert.equal(result.preview.openclaw.provider, "custom");
+  assert.equal(result.openclawModel, "custom/gemini-chat");
+  const saved = JSON.parse(await fs.readFile(f.configPath, "utf8"));
+  const cache = JSON.parse(await fs.readFile(f.cachePath, "utf8"));
+  assert.deepEqual(Object.keys(saved.models.providers).sort(), ["custom", "old"]);
+  assert.deepEqual(cache.providers, saved.models.providers);
 });
 
 test("dry run writes nothing and does not invoke OpenClaw", async (t) => {
